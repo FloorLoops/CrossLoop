@@ -101,12 +101,17 @@ valid. Each staged manifest verifies against the public key embedded in its
 application. Source build inputs were matched across the publication checkout
 and both build locations.
 
-Publication/download verification is tracked with release receipts. Initial
-reader setup and an actual Wi-Fi upgrade/restart remain pending physical
-acceptance. Neither model is declared OTA-verified from these host results.
-CrossLoop remains v0.9 testing until the wider device checks pass.
+Both releases and the testing feed were downloaded without authentication and
+verified against the embedded public key, model, version, size and SHA-256.
+The X4 Pro user completed the setup, reported the rc.3 wireless update in
+progress, then confirmed About displays `CrossLoop 0.9.0-rc.3` after the update.
+The user also confirmed different per-book text settings now save correctly.
+This passes the core X4 Pro OTA flow by user report. It does not establish
+instrumented runtime memory, power-loss recovery or every preservation case.
+The X3 initial installation and actual OTA test remain pending. CrossLoop
+remains v0.9 testing until the wider device checks pass.
 
 The `0.9.0-rc.3` upgrade candidate changes only the release-version constant.
 Both final target builds and image/signature/model checks passed for that
 version as well. It provides an actual newer version for the first on-reader
-OTA trial after rc.2. Reader acceptance remains pending.
+OTA trial after rc.2. The X4 Pro trial is user-confirmed; X3 acceptance remains pending.
