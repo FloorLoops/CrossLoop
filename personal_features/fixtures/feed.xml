@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Sample reading feed</title>
+    <link>https://example.com/feed</link>
+    <description>Offline sample stories</description>
+    <item>
+      <title>A short walk at dawn</title>
+      <link>https://example.com/stories/dawn</link>
+      <description>&lt;p&gt;The first light reached the empty path.&lt;/p&gt;</description>
+    </item>
+  </channel>
+</rss>

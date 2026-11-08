@@ -1,0 +1,11 @@
+[
+  {
+    "project": {"id": "example", "name": "Sample project"},
+    "tasks": [
+      {"title": "Return library books", "status": 0, "priority": 5, "dueDate": "2026-11-05T00:00:00+0000", "isAllDay": true},
+      {"title": "Read for twenty minutes", "status": 0, "priority": 3, "dueDate": "2026-11-06T00:00:00+0000", "isAllDay": true},
+      {"title": "Review next week's reading list", "status": 0, "priority": 0, "dueDate": "2026-11-07T00:00:00+0000", "isAllDay": true},
+      {"title": "Completed sample", "status": 2, "priority": 0, "dueDate": "2026-11-06T00:00:00+0000", "isAllDay": true}
+    ]
+  }
+]

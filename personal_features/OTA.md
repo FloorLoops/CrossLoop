@@ -1,0 +1,107 @@
+# CrossLoop Wi-Fi updates
+
+CrossLoop uses signed public releases at `FloorLoops/CrossLoop`. No GitHub login,
+personal API key or running companion computer is needed on the reader.
+The reader downloads updates only when **Settings → System → Check for Updates**
+is opened and installs only after **Update** is confirmed. This does not add
+background checks, remote wake or forced updates.
+
+## Version and channel contract
+
+- Testing versions end in `-rc.N`, with a positive increasing number. They read
+  `releases/download/crossloop-testing/personal-MODEL.manifest`.
+- Stable versions use `major.minor.patch`, read
+  `releases/latest/download/personal-MODEL.manifest`, and reject RC versions.
+- A testing build accepts a newer RC or stable version. Installing stable
+  firmware switches to the stable channel. Returning to testing then requires
+  a deliberate manual install.
+- `MODEL` is `x4pro` or `x3`. Every version is a separate GitHub tag matching
+  the version exactly. Its application is `personal-VERSION-MODEL.bin`.
+- RC comparison is numeric: rc.10 follows rc.9. Same and older versions are
+  rejected. The manifest and embedded application identity must agree.
+
+The initial bootstrap is `0.9.0-rc.2`. It replaces the old unconfigured trial
+whose internal label was `Personal 1.0.0-rc.1`, using a manual application
+installation. That deliberate one-time version reset cannot use the old OTA
+channel. Later updates must increase from the new version. The next candidate
+`0.9.0-rc.3` can verify the actual OTA path without changing reader features.
+
+## Publishing
+
+The firmware contains the public P-256 key in `src/network/PersonalRelease.h`.
+Keep its private counterpart outside the checkout, firmware, SD card, releases
+and build logs. Retain a secure private backup. Losing it requires a manual
+reader update to establish another key; changing a repository file alone does
+not change keys already installed on readers.
+
+1. Increase `CROSSLOOP_RELEASE_VERSION` in `PersonalRelease.h`. Never reuse a
+   published version for different bytes. Complete the repository's review and
+   build checks for both supported targets.
+2. Retain exact source, pinned SDK revision, image validation, hashes and test
+   evidence. Firmware binaries must be application images, not merged full
+   flash images. Keep the MIT license and upstream notices with source.
+3. Stage each model with Python and the existing `cryptography` dependency:
+
+   ```text
+   python personal_features/release_manifest.py --model x4pro --version VERSION --application PATH_TO_APPLICATION --private-key PATH_OUTSIDE_CHECKOUT --output NEW_STAGING_DIRECTORY
+   ```
+
+   Repeat with `--model x3` and the dedicated X3 application. The helper rejects
+   wrong-chip, wrong-board and wrong-version images. It signs model, version,
+   byte count and SHA-256. Complete ESP image validation remains a build check.
+4. Publish the exact source/tag and both staged application/manifest pairs to
+   the versioned release. Mark RC releases as prereleases. Download the public
+   assets without authentication and verify their signatures and image hashes.
+5. Only after that succeeds, replace each model's manifest on the mutable
+   `crossloop-testing` prerelease. Each manifest points to the immutable version
+   tag, not a mutable binary. A brief missing manifest during replacement can
+   make a check fail; retry after publication completes. Do not move the feed
+   before both model assets are downloadable. Do not mutate released version
+   tags or binaries. For stable releases, publish both manifests on the latest
+   stable release and also promote them to the test feed so testers can graduate.
+
+The GitHub `latest` shortcut excludes prereleases, which is why testing uses an
+explicit feed. See [GitHub release documentation](https://docs.github.com/en/rest/releases/releases).
+Publication is performed by the maintainer using their existing GitHub access;
+no private signing key is stored in GitHub Actions by this setup.
+
+## Installation and verification
+
+An already configured CrossLoop reader needs only Wi-Fi and sufficient battery.
+Open **Settings → System → Check for Updates**, select a network if asked,
+verify the offered version, and choose **Update**. Wait for the restart, then
+check **Settings → System → About** and reopen the previously used book.
+
+For the initial bootstrap, a manually installed application is required. It
+can be copied using USB or Wi-Fi File Transfer and selected through the existing
+SD firmware updater when the installed firmware accepts that model tag. The
+dedicated X3 application must not be assumed compatible with an official
+combined X3/X4 updater; establish the X3 transition separately.
+
+Before a live trial, retain the reader's SD settings/progress and original full
+flash recovery image locally. OTA writes the inactive application slot and
+selects it only after size, SHA-256, embedded version, model and ESP image checks
+pass. It does not repartition flash or intentionally modify book/settings files.
+The old application occupies the other slot after a successful update. Normal
+future OTA cycles overwrite that slot, including any original official firmware
+kept there. A host recovery backup is therefore still necessary. This setup
+does not promise automatic rollback after every possible boot/runtime failure.
+
+Acceptance requires a real download, restart and version readback on each
+model, plus preservation of settings/progress and a verified recovery route.
+Host parsing/signature tests and successful builds do not establish device
+network compatibility, power-loss recovery, runtime heap or physical behavior.
+
+## Current evidence
+
+The bootstrap `0.9.0-rc.2` has passed 318 production C++ host checks across both
+models/channels, three host signing tests, four independent source reviews,
+and final X4 Pro/X3 builds. Both ESP image checksums and SHA-256 trailers are
+valid. Each staged manifest verifies against the public key embedded in its
+application. Source build inputs were matched across the publication checkout
+and both build locations.
+
+Publication/download verification is tracked with release receipts. Initial
+reader setup and an actual Wi-Fi upgrade/restart remain pending physical
+acceptance. Neither model is declared OTA-verified from these host results.
+CrossLoop remains v0.9 testing until the wider device checks pass.
