@@ -25,7 +25,7 @@ W/sA8jXb+BU2gqnD0GzonxDAyJYBxr+jpvvhgjnuP16uqqpETA0gDx/uQg==
 inline constexpr char model[] = PERSONAL_RELEASE_MODEL;
 inline constexpr char identityPrefix[] = "!XTEINK-PERSONAL-BUILD:" PERSONAL_RELEASE_MODEL ":";
 #ifndef CROSSLOOP_RELEASE_VERSION
-#define CROSSLOOP_RELEASE_VERSION "0.9.0-rc.2"
+#define CROSSLOOP_RELEASE_VERSION "0.9.0-rc.3"
 #endif
 inline constexpr char buildIdentity[] = "!XTEINK-PERSONAL-BUILD:" PERSONAL_RELEASE_MODEL ":" CROSSLOOP_RELEASE_VERSION;
 inline constexpr const char* version = buildIdentity + sizeof(identityPrefix) - 1;

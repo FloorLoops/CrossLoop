@@ -105,3 +105,8 @@ Publication/download verification is tracked with release receipts. Initial
 reader setup and an actual Wi-Fi upgrade/restart remain pending physical
 acceptance. Neither model is declared OTA-verified from these host results.
 CrossLoop remains v0.9 testing until the wider device checks pass.
+
+The `0.9.0-rc.3` upgrade candidate changes only the release-version constant.
+Both final target builds and image/signature/model checks passed for that
+version as well. It provides an actual newer version for the first on-reader
+OTA trial after rc.2. Reader acceptance remains pending.
