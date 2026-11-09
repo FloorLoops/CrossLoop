@@ -12,10 +12,15 @@
 #include <Xtc.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
+#include <cstdlib>
 #include <cstring>
+#include <limits>
 
+#include "../../src/util/BookDetails.h"
 #include "LibraryIndexFile.h"
+#include "LibraryShelfSort.h"
 #include "LibraryText.h"
 
 namespace library {
@@ -57,6 +62,9 @@ struct StagedEntry {
   // title on the other.
   uint8_t titleLen;
   char title[STAGE_NAME_BYTES];
+  char genre[97];
+  char series[97];
+  char seriesNumber[17];
 };
 constexpr size_t STAGE_STRIDE = sizeof(StagedEntry);
 
@@ -107,7 +115,7 @@ bool recoverInterruptedInstall() {
   // before backup cleanup. Validate them one at a time (SdFat has one reader)
   // before deciding which copy is stale.
   LibraryIndexFile candidate;
-  if (candidate.open(INDEX_PATH)) {
+  if (candidate.openForReconciliation(INDEX_PATH)) {
     candidate.close();
     if (Storage.remove(BACKUP_PATH)) return true;
     LOG_ERR("LIBIDX", "cannot remove stale backup; rebuild deferred");
@@ -119,7 +127,7 @@ bool recoverInterruptedInstall() {
   }
   candidate.close();
 
-  if (candidate.open(BACKUP_PATH)) {
+  if (candidate.openForReconciliation(BACKUP_PATH)) {
     candidate.close();
     if (!Storage.remove(INDEX_PATH) || !Storage.rename(BACKUP_PATH, INDEX_PATH)) {
       LOG_ERR("LIBIDX", "validated backup could not replace an invalid live index");
@@ -246,6 +254,7 @@ struct WalkState {
   serialization::BufferedFileWriter* stageOut = nullptr;
   char* nameBuf = nullptr;
   StagedEntry* stagedEntry = nullptr;
+  crossloop::books::Details* overrides = nullptr;
   uint16_t books = 0;
   uint16_t folderId = 0;
   uint32_t folderBytes = 0;
@@ -299,6 +308,7 @@ int findPrior(WalkState& st, const uint64_t pathHash) {
   // and a name pulled out of one by pattern is a guess wearing a fact's clothes.
   std::string title = stemOf(name);
   std::string author;
+  std::string genre, series, seriesNumber;
   bool titleFromBook = false;
   bool authorFromBook = false;
 
@@ -315,10 +325,12 @@ int findPrior(WalkState& st, const uint64_t pathHash) {
       st.failed = true;
       return false;
     }
-    reuseMetadata =
-        st.prior[priorIndex].fileSize == fileSize && modificationTime != 0 &&
-        priorRecord.modificationTime == modificationTime && st.previous->header().foldVersion == CLIX_FOLD_VERSION &&
-        st.previous->header().metadataEnabled == st.readMetadata && priorRecord.metadataStatus == expectedStatus;
+    reuseMetadata = st.prior[priorIndex].fileSize == fileSize && modificationTime != 0 &&
+                    priorRecord.modificationTime == modificationTime &&
+                    st.previous->header().formatVersion == CLIX_FORMAT_VERSION &&
+                    st.previous->header().foldVersion == CLIX_FOLD_VERSION &&
+                    st.previous->header().metadataEnabled == st.readMetadata &&
+                    priorRecord.metadataStatus == expectedStatus;
   }
 
   if (reuseMetadata) {
@@ -339,6 +351,11 @@ int findPrior(WalkState& st, const uint64_t pathHash) {
       title = stemOf(name);
     }
     st.stats->metadataReused++;
+    if (!st.previous->readGenre(priorRecord, genre) || !st.previous->readSeries(priorRecord, series) ||
+        !st.previous->readSeriesNumber(priorRecord, seriesNumber)) {
+      st.failed = true;
+      return false;
+    }
   }
 
   // Prefer the reader's existing cache. For an unopened book, loadMetadata()
@@ -359,7 +376,20 @@ int findPrior(WalkState& st, const uint64_t pathHash) {
       }
     } else {
       Epub epub(fullPath, CACHE_DIR);
-      loaded = epub.loadMetadata(bookTitle, author);
+      Epub::SyncMetadata metadata;
+      loaded = epub.loadSyncMetadata(metadata);
+      if (loaded) {
+        bookTitle = std::move(metadata.title);
+        author = std::move(metadata.author);
+        genre = std::move(metadata.genre);
+        series = std::move(metadata.series);
+        if (metadata.seriesIndex.has_value() && std::isfinite(*metadata.seriesIndex) &&
+            std::abs(*metadata.seriesIndex) <= 1000000) {
+          char number[32];
+          snprintf(number, sizeof(number), "%.6g", static_cast<double>(*metadata.seriesIndex));
+          seriesNumber = number;
+        }
+      }
     }
     if (loaded) {
       entry.record.metadataStatus = CLIX_METADATA_EXTRACTED;
@@ -373,6 +403,37 @@ int findPrior(WalkState& st, const uint64_t pathHash) {
     }
     if (!titleFromBook && !authorFromBook) LOG_DBG("LIBIDX", "no metadata for %s", fullPath.c_str());
   }
+  auto* overrides = st.overrides;
+  const auto custom = crossloop::books::loadDetails(fullPath, *overrides);
+  if (custom == crossloop::books::DetailsResult::Error) {
+    st.failed = true;
+    return false;
+  }
+  if (custom == crossloop::books::DetailsResult::Ok && !crossloop::books::emptyDetails(*overrides)) {
+    if (overrides->title[0]) {
+      title = overrides->title;
+      titleFromBook = true;
+    }
+    if (overrides->author[0]) {
+      author = overrides->author;
+      authorFromBook = true;
+    }
+    if (overrides->genre[0]) genre = overrides->genre;
+    if (overrides->series[0]) series = overrides->series;
+    if (overrides->seriesNumber[0]) seriesNumber = overrides->seriesNumber;
+    entry.record.metadataStatus = CLIX_METADATA_OVERRIDDEN;
+    if (reuseMetadata) --st.stats->metadataReused;
+    reuseMetadata = false;
+  }
+  const auto bounded = [](char* target, size_t capacity, const std::string& value) {
+    const size_t length = static_cast<size_t>(
+        utf8SafeTruncateBuffer(value.data(), static_cast<int>(std::min(capacity - 1, value.size()))));
+    memcpy(target, value.data(), length);
+    target[length] = 0;
+  };
+  bounded(entry.genre, sizeof(entry.genre), genre);
+  bounded(entry.series, sizeof(entry.series), series);
+  bounded(entry.seriesNumber, sizeof(entry.seriesNumber), seriesNumber);
   // Exporters write "Unknown" into dc:creator often enough that treating it as
   // a person would put a fictional author at the top of the shelf. fold() already
   // lowercases and trims, so recognising it is the one comparison @Uri-Tauber
@@ -564,7 +625,7 @@ void walk(WalkState& st, const std::string& path, const int depth) {
 // truth.
 uint32_t blobBytesFor(const StagedEntry& entry, const StagedEntry& canonical) {
   return sizeof(entry.pathHash) + entry.record.nameLen + 1u + canonical.authorLen + 1u + entry.titleLen + 1u +
-         entry.authorLen;
+         entry.authorLen + 3u + strlen(entry.genre) + strlen(entry.series) + strlen(entry.seriesNumber);
 }
 
 bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order, const uint16_t* resolvedFirstSeen,
@@ -976,7 +1037,8 @@ bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order
     // The blob holds the path hash, basename, chosen author spelling, title, and
     // source author spelling used by later rebuilds.
     // Keeping them adjacent means no second offset has to live in the record.
-    const uint16_t from = canonicalFrom ? canonicalFrom[i] : i;
+    const uint16_t from =
+        canonicalFrom && entry.record.metadataStatus != CLIX_METADATA_OVERRIDDEN ? canonicalFrom[i] : i;
     if (!fetch(order[from], canonical)) break;
     nameCursor += blobBytesFor(entry, canonical);
     if (resolvedFirstSeen) entry.record.firstSeen = resolvedFirstSeen[order[i]];
@@ -994,6 +1056,41 @@ bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order
     const uint16_t ordinal = arrivalOrder[k];
     put(&ordinal, sizeof(ordinal));
   }
+  // The two extra orders use bounded external merges rather than retaining
+  // every genre/series name in C3 RAM. Full stored names break prefix ties.
+  for (bool series : {false, true}) {
+    const auto source = [&](uint16_t ordinal, ShelfKey& key) {
+      if (!fetch(order[ordinal], entry)) return false;
+      const auto folded = fold(series ? entry.series : entry.genre);
+      const auto bytes =
+          utf8SafeTruncateBuffer(folded.data(), static_cast<int>(std::min(folded.size(), sizeof(key.name) - 1)));
+      memcpy(key.name, folded.data(), bytes);
+      key.name[bytes] = 0;
+      key.ordinal = ordinal;
+      key.number = series ? (entry.seriesNumber[0] ? strtod(entry.seriesNumber, nullptr)
+                                                   : std::numeric_limits<double>::infinity())
+                          : 0;
+      return true;
+    };
+    const auto destination = [&](uint16_t ordinal) {
+      put(&ordinal, sizeof(ordinal));
+      return !ioFailed;
+    };
+    struct Callbacks {
+      const decltype(source)* getter;
+      const decltype(destination)* emitter;
+    } callbacks{&source, &destination};
+    if (!sortShelf(
+            n,
+            [](void* context, uint16_t ordinal, ShelfKey& key) {
+              return (*static_cast<Callbacks*>(context)->getter)(ordinal, key);
+            },
+            [](void* context, uint16_t ordinal) { return (*static_cast<Callbacks*>(context)->emitter)(ordinal); },
+            &callbacks)) {
+      ioFailed = true;
+      break;
+    }
+  }
   padTo(header.nameStart);
 
   uint32_t blobWritten = 0;
@@ -1003,7 +1100,8 @@ bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order
     put(&entry.pathHash, sizeof(entry.pathHash));
     put(entry.name, entry.record.nameLen);
 
-    const uint16_t from = canonicalFrom ? canonicalFrom[i] : i;
+    const uint16_t from =
+        canonicalFrom && entry.record.metadataStatus != CLIX_METADATA_OVERRIDDEN ? canonicalFrom[i] : i;
     if (!fetch(order[from], canonical)) break;
     put(&canonical.authorLen, 1);
     if (canonical.authorLen > 0) put(canonical.author, canonical.authorLen);
@@ -1011,6 +1109,11 @@ bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order
     if (entry.titleLen > 0) put(entry.title, entry.titleLen);
     put(&entry.authorLen, 1);
     if (entry.authorLen > 0) put(entry.author, entry.authorLen);
+    for (const auto* value : {entry.genre, entry.series, entry.seriesNumber}) {
+      const auto length = static_cast<uint8_t>(strlen(value));
+      put(&length, 1);
+      if (length) put(value, length);
+    }
     blobWritten += blobBytesFor(entry, canonical);
   }
   header.nameLen = blobWritten;
@@ -1109,7 +1212,8 @@ bool buildLibraryIndex(const char* rootPath, BuildStats& stats, const bool readM
   // The staging record exceeds the task's 256-byte stack budget. Allocate one
   // fallibly for the build and reuse it; static storage would pin scarce DRAM.
   auto stagedEntry = makeUniqueNoThrow<StagedEntry>();
-  if (!stagedEntry) {
+  auto overrides = makeUniqueNoThrow<crossloop::books::Details>();
+  if (!stagedEntry || !overrides) {
     LOG_ERR("LIBIDX", "staging record alloc failed (%u bytes)", static_cast<unsigned>(sizeof(StagedEntry)));
     return false;
   }
@@ -1162,6 +1266,7 @@ bool buildLibraryIndex(const char* rootPath, BuildStats& stats, const bool readM
   WalkState st;
   st.nameBuf = nameBuf.get();
   st.stagedEntry = stagedEntry.get();
+  st.overrides = overrides.get();
   st.dedupKeys = dedupKeys.get();
   st.dedupDegraded = !dedupKeys;
   st.nextFirstSeen = nextFirstSeen;
@@ -1318,6 +1423,8 @@ bool buildLibraryIndex(const char* rootPath, BuildStats& stats, const bool readM
   priorList.reset();
   nameBuf.reset();
   stagedEntry.reset();
+  st.overrides = nullptr;
+  overrides.reset();
   dedupKeys.reset();
 
   // Read the staged fold prefixes back and sort ordinals. The checked 14-byte

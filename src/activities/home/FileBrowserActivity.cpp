@@ -132,7 +132,9 @@ void FileBrowserActivity::loadFiles() {
           files.emplace_back(filename);
         }
       } else if (mode == Mode::PickSleepImage) {
-        if (FsHelpers::hasBmpExtension(filename)) files.emplace_back(filename);
+        if (FsHelpers::hasBmpExtension(filename) || FsHelpers::hasJpgExtension(filename) ||
+            FsHelpers::hasPngExtension(filename))
+          files.emplace_back(filename);
       } else if (FsHelpers::hasReflowableBookExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
                  FsHelpers::hasImageExtension(filename)) {
         files.emplace_back(filename);

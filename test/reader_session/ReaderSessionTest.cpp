@@ -4,7 +4,7 @@
 
 namespace {
 
-TEST(ReaderSession, UsesOnlyBoundedScalarState) { EXPECT_LE(sizeof(ReaderSession), 48u); }
+TEST(ReaderSession, UsesOnlyBoundedScalarState) { EXPECT_LE(sizeof(ReaderSession), 56u); }
 
 void anchor(ReaderSession& session, uint32_t ms, int64_t epoch, int progress) {
   session.onRenderComplete(ms, epoch, progress);
@@ -86,6 +86,8 @@ TEST(ReaderSession, RequiresTenSecondsAndTrustedStart) {
   anchor(session, 1000, 0, 1000);
   turnAndRender(session, true, true, 11000, 10, 1100);
   EXPECT_EQ(session.durationSeconds(), 0u);
+  EXPECT_EQ(session.localDurationSeconds(), 10u);
+  EXPECT_EQ(session.forwardTurnCount(), 1u);
 
   turnAndRender(session, true, true, 20000, 19, 1200);
   EXPECT_EQ(session.durationSeconds(), 9u);
@@ -93,6 +95,8 @@ TEST(ReaderSession, RequiresTenSecondsAndTrustedStart) {
 
   turnAndRender(session, true, true, 22000, 21, 1300);
   EXPECT_EQ(session.durationSeconds(), 11u);
+  EXPECT_EQ(session.localDurationSeconds(), 21u);
+  EXPECT_EQ(session.forwardTurnCount(), 3u);
   EXPECT_TRUE(session.isEmitWorthy());
   EXPECT_GT(session.endTime(), session.startTime());
 }
@@ -106,6 +110,8 @@ TEST(ReaderSession, ResetClearsSummaryAnchorAndPendingTurn) {
 
   EXPECT_EQ(session.startTime(), 0);
   EXPECT_EQ(session.durationSeconds(), 0u);
+  EXPECT_EQ(session.localDurationSeconds(), 0u);
+  EXPECT_EQ(session.forwardTurnCount(), 0u);
   EXPECT_EQ(session.startProgressBp(), 0);
   EXPECT_EQ(session.endProgressBp(), 0);
   EXPECT_FALSE(session.isEmitWorthy());

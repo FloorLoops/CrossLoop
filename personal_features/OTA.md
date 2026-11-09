@@ -115,3 +115,21 @@ The `0.9.0-rc.3` upgrade candidate changes only the release-version constant.
 Both final target builds and image/signature/model checks passed for that
 version as well. It provides an actual newer version for the first on-reader
 OTA trial after rc.2. The X4 Pro trial is user-confirmed; X3 acceptance remains pending.
+
+
+## rc4 candidate verification
+
+`0.9.0-rc.4` adds the native apps and reader improvements described in
+[RC4-TESTING.md](RC4-TESTING.md). Both final target builds passed without compiler
+warnings. Their application images have valid ESP checksums and hash trailers,
+the correct chip/model/version identities, and the existing public verification
+key. Both signed manifests verified against that key. The 806 firmware/build
+inputs matched across the canonical, X3 build and publication checkouts, with
+the pinned SDK revision retained.
+
+The updater regression suite passed 318 C++ checks across both models/channels
+and three host signing tests. Feature-specific host suites and the four
+independent review axes are recorded in the feature guide. These results do
+not establish live account behavior, sleep/wake timing, runtime heap, recovery
+or installation on either reader. X4 Pro rc3 OTA/profile acceptance remains the
+baseline. X3 still needs its separate initial-install/OTA acceptance.

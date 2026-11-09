@@ -21,6 +21,8 @@ class CrossPointState : public PersistableStore<CrossPointState> {
   uint8_t readerActivityLoadCount = 0;
   bool lastSleepFromReader = false;
   bool showBootScreen = true;
+  int64_t sleepLightEpoch = 0;
+  bool sleepLightOn = false;
 
   static const char* getFilePath() { return "/.crosspoint/state.json"; }
   void toJson(JsonDocument& doc) const;

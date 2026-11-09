@@ -39,6 +39,10 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
 
   const auto emit = [visit, context](auto&& info) { visit(context, info); };
   // --- Display ---
+  emit(SettingInfo::Toggle(StrId::STR_CROSSLOOP_HOLIDAY_BRANDING, &CrossPointSettings::holidayBranding,
+                           "holidayBranding", StrId::STR_CAT_DISPLAY));
+  emit(SettingInfo::Toggle(StrId::STR_CROSSLOOP_REFRESH_BEFORE_SLEEP, &CrossPointSettings::refreshBeforeSleep,
+                           "refreshBeforeSleep", StrId::STR_CAT_DISPLAY));
   emit(SettingInfo::StaticEnum(StrId::STR_SLEEP_SCREEN, &CrossPointSettings::sleepScreen, SLEEP_SCREEN_VALUES,
                                "sleepScreen", StrId::STR_CAT_DISPLAY));
 #if FREEINK_DEVICE_X4PRO || (FREEINK_DEVICE_X3 && !FREEINK_DEVICE_X4)
@@ -67,8 +71,12 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
     emit(SettingInfo::Toggle(StrId::STR_SUNLIGHT_FADING_FIX, &CrossPointSettings::fadingFix, "fadingFix",
                              StrId::STR_CAT_DISPLAY));
 #if FREEINK_CAP_FRONTLIGHT
-  emit(SettingInfo::Toggle(StrId::STR_RESTORE_LIGHT_ON_WAKE, &CrossPointSettings::frontlightRestoreOnWake,
-                           "frontlightRestoreOnWake", StrId::STR_CAT_DISPLAY));
+  emit(SettingInfo::Enum(
+      StrId::STR_RESTORE_LIGHT_ON_WAKE, &CrossPointSettings::frontlightRestoreOnWake,
+      {StrId::STR_CROSSLOOP_LIGHT_OFF, StrId::STR_CROSSLOOP_LIGHT_PREVIOUS, StrId::STR_CROSSLOOP_LIGHT_TIMED},
+      "frontlightRestoreOnWake", StrId::STR_CAT_DISPLAY));
+  emit(SettingInfo::Value(StrId::STR_CROSSLOOP_LIGHT_WINDOW, &CrossPointSettings::frontlightRestoreMinutes, {1, 60, 1},
+                          "frontlightRestoreMinutes", StrId::STR_CAT_DISPLAY));
 #endif
   // Night mode = inverted output polarity everywhere (ActivityManager
   // applies it to every activity), so it lives in the Display category.

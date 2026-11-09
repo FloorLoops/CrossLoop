@@ -11,6 +11,7 @@
 
 #include "ClipSelectionActivity.h"
 #include "activities/Activity.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 #include "util/Dictionary.h"
 
@@ -18,11 +19,12 @@
 // through the EPUB chapter parser into styled Pages; anything else (plain
 // text, or HTML too damaged to parse) is word-wrapped once on entry and each
 // page renders spans of the original string, so no per-line copies are held.
-class DictionaryDefinitionActivity final : public Activity {
+class DictionaryDefinitionActivity final : public Activity, private UiAppHost {
  public:
   explicit DictionaryDefinitionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string headword,
                                         std::string definition, bool htmlDefinition = false)
       : Activity("DictionaryDefinition", renderer, mappedInput),
+        UiAppHost(renderer),
         content{.headword = std::move(headword), .text = std::move(definition)},
         htmlDefinition(htmlDefinition) {}
 
@@ -104,6 +106,8 @@ class DictionaryDefinitionActivity final : public Activity {
   void showMessage(StrId message);
 #if FREEINK_DEVICE_X4PRO || (FREEINK_DEVICE_X3 && !FREEINK_DEVICE_X4)
   void saveWord();
+  static void saveScreen(UiScreen& screen, void* user);
+  static void saveAction(const freeink::ui::ActionEvent& event, void* user);
 #endif
 
   Definition content;

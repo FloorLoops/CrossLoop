@@ -18,6 +18,7 @@
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
 #include "XtcReaderActivity.h"
+#include "util/LocalReadingStats.h"
 #include "util/PluginEvents.h"
 
 ReaderActivity::ReaderActivity(const char* name, GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -129,6 +130,13 @@ void ReaderActivity::onExit() {
 void ReaderActivity::prepareForSleep() { flushReaderSession(); }
 
 void ReaderActivity::flushReaderSession() {
+#if FREEINK_DEVICE_X4PRO || (FREEINK_DEVICE_X3 && !FREEINK_DEVICE_X4)
+  if (!crossloop::recordReadingSession(
+          readerSession.localDurationSeconds(), readerSession.forwardTurnCount(),
+          readerSession.localDurationSeconds() == readerSession.durationSeconds() ? readerSession.startTime() : 0)) {
+    LOG_ERR("STATS", "Could not save local reading totals");
+  }
+#endif
   if (!readerSession.isEmitWorthy() || !pluginevents::anySubscriber(pluginevents::Event::ReaderSession)) {
     readerSession.reset();
     return;

@@ -10,6 +10,7 @@
 #include "Epub.h"
 #include "LibraryBuilder.h"
 #include "LibraryIndexFile.h"
+#include "util/BookDetails.h"
 
 using namespace library;
 
@@ -394,7 +395,7 @@ TEST_F(LibraryBuilderTest, ReadWriteCloseAndAllocationFailuresRetainPreviousInde
   EXPECT_FALSE(buildLibraryIndex("/", stats, true));
   EXPECT_EQ(fake::files[INDEX]->bytes, old);
 
-  fake::failAlloc = 3;
+  fake::failAllocBytes = sizeof(crossloop::books::Details);
   EXPECT_FALSE(buildLibraryIndex("/", stats, true));
   EXPECT_EQ(fake::files[INDEX]->bytes, old);
   fake::failAlloc = -1;
@@ -468,7 +469,7 @@ TEST_F(LibraryBuilderTest, LibrariesPastOldGateAndAtFormatCeilingKeepAllOrders) 
 TEST_F(LibraryBuilderTest, SortAllocationFailureProducesValidDegradedIndex) {
   fake::reset();
   for (unsigned i = 0; i < 513; i++) fake::add("/book" + numbered("", i) + ".txt");
-  fake::failAlloc = 6;
+  fake::failAllocBytes = 513 * 14;  // The optional title-prefix sort array.
 
   ASSERT_TRUE(buildLibraryIndex("/", stats, false));
   EXPECT_TRUE(fake::failureTriggered);
@@ -478,4 +479,127 @@ TEST_F(LibraryBuilderTest, SortAllocationFailureProducesValidDegradedIndex) {
   LibraryIndexFile index;
   ASSERT_TRUE(index.open(INDEX));
   EXPECT_EQ(index.bookCount(), 513);
+}
+
+TEST_F(LibraryBuilderTest, GenreAndSeriesAreSortedAndEditsInvalidateTheUnchangedFastPath) {
+  auto& a = bookMetadata["/a.epub"];
+  auto& b = bookMetadata["/b.epub"];
+  a.title = "Zed";
+  a.genre = "Crime";
+  a.series = "Shared";
+  a.seriesIndex = 10;
+  b.title = "Alpha";
+  b.genre = "Fantasy";
+  b.series = "Shared";
+  b.seriesIndex = 2;
+  initial();
+  LibraryIndexFile index;
+  ASSERT_TRUE(index.open(INDEX));
+  EXPECT_EQ(pathAt(index, SortOrder::GenreAsc, 0), "/a.epub");
+  EXPECT_EQ(pathAt(index, SortOrder::SeriesAsc, 0), "/b.epub");
+  EXPECT_EQ(pathAt(index, SortOrder::SeriesDesc, 0), "/a.epub");
+  const auto arrival = pathAt(index, SortOrder::RecentAsc, 0);
+  index.close();
+  crossloop::books::Details edit;
+  strcpy(edit.title, "A changed title");
+  strcpy(edit.author, "My chosen author");
+  strcpy(edit.genre, "Adventure");
+  strcpy(edit.seriesNumber, "1.5");
+  ASSERT_TRUE(crossloop::books::saveDetails("/a.epub", edit));
+  ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+  EXPECT_TRUE(stats.indexReplaced);
+  ASSERT_TRUE(index.open(INDEX));
+  EXPECT_EQ(pathAt(index, SortOrder::TitleAsc, 0), "/a.epub");
+  EXPECT_EQ(pathAt(index, SortOrder::SeriesAsc, 0), "/a.epub");
+  EXPECT_EQ(pathAt(index, SortOrder::RecentAsc, 0), arrival);
+  ClixRecord record;
+  ASSERT_TRUE(index.readRecord(index.ordinalForRow(SortOrder::TitleAsc, 0), record));
+  std::string value;
+  EXPECT_TRUE(index.readTitle(record, value));
+  EXPECT_EQ(value, "A changed title");
+  EXPECT_TRUE(index.readAuthor(record, value));
+  EXPECT_EQ(value, "My chosen author");
+  EXPECT_TRUE(index.readGenre(record, value));
+  EXPECT_EQ(value, "Adventure");
+  EXPECT_TRUE(index.readSeries(record, value));
+  EXPECT_EQ(value, "Shared");
+  index.close();
+  edit = {};
+  ASSERT_TRUE(crossloop::books::saveDetails("/a.epub", edit));
+  ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+  EXPECT_TRUE(stats.indexReplaced);
+  ASSERT_TRUE(index.open(INDEX));
+  EXPECT_EQ(pathAt(index, SortOrder::TitleAsc, 0), "/b.epub");
+  EXPECT_EQ(pathAt(index, SortOrder::SeriesAsc, 0), "/b.epub");
+}
+
+TEST_F(LibraryBuilderTest, CorruptOverridesOrShelfWritesKeepThePreviousIndex) {
+  initial();
+  const auto old = fake::files[INDEX]->bytes;
+  fake::add("/a.epub.crossloop-meta", "unrecognized data");
+  EXPECT_FALSE(buildLibraryIndex("/", stats, true));
+  EXPECT_EQ(fake::files[INDEX]->bytes, old);
+  Storage.remove("/a.epub.crossloop-meta");
+  fake::files["/a.epub"]->time++;
+  fake::failWritePath = "/.crosspoint/library-shelf.a";
+  EXPECT_FALSE(buildLibraryIndex("/", stats, true));
+  EXPECT_EQ(fake::files[INDEX]->bytes, old);
+}
+
+TEST_F(LibraryBuilderTest, VersionTwoMigrationPreservesArrivalIdentities) {
+  initial();
+  LibraryIndexFile reader;
+  ASSERT_TRUE(reader.open(INDEX));
+  const auto oldHeader = reader.header();
+  auto header = oldHeader;
+  header.formatVersion = 2;
+  header.nextFirstSeen = 123;
+  std::vector<ClixRecord> records;
+  std::vector<uint8_t> names;
+  std::map<std::string, uint16_t> arrivals;
+  for (uint16_t i = 0; i < reader.bookCount(); ++i) {
+    ClixRecord record;
+    ASSERT_TRUE(reader.readRecord(i, record));
+    uint64_t hash = 0;
+    ASSERT_TRUE(reader.readPathHash(record, hash));
+    std::string name, title, author, sourceAuthor, path;
+    ASSERT_TRUE(reader.readName(record, name));
+    ASSERT_TRUE(reader.readTitle(record, title));
+    ASSERT_TRUE(reader.readAuthor(record, author));
+    ASSERT_TRUE(reader.readSourceAuthor(record, sourceAuthor));
+    ASSERT_TRUE(reader.readPath(record, path));
+    record.nameOff = static_cast<uint32_t>(names.size());
+    record.firstSeen = 17 + i * 76;
+    arrivals[path] = record.firstSeen;
+    const auto* bytes = reinterpret_cast<const uint8_t*>(&hash);
+    names.insert(names.end(), bytes, bytes + sizeof(hash));
+    names.insert(names.end(), name.begin(), name.end());
+    for (const auto& value : {author, title, sourceAuthor}) {
+      names.push_back(static_cast<uint8_t>(value.size()));
+      names.insert(names.end(), value.begin(), value.end());
+    }
+    records.push_back(record);
+  }
+  reader.close();
+  layoutSections(header, oldHeader.folderLen, static_cast<uint32_t>(names.size()));
+  const auto old = fake::files[INDEX]->bytes;
+  std::vector<uint8_t> legacy(header.selfSize, 0);
+  memcpy(legacy.data(), &header, sizeof(header));
+  memcpy(legacy.data() + header.folderStart, old.data() + oldHeader.folderStart, header.folderLen);
+  memcpy(legacy.data() + header.recordStart, records.data(), records.size() * sizeof(ClixRecord));
+  memcpy(legacy.data() + header.permStart, old.data() + oldHeader.permStart, header.bookCount * 2 * sizeof(uint16_t));
+  memcpy(legacy.data() + header.nameStart, names.data(), names.size());
+  fake::files[INDEX]->bytes = legacy;
+  EXPECT_FALSE(reader.open(INDEX));
+  ASSERT_TRUE(buildLibraryIndex("/", stats, true));
+  ASSERT_TRUE(reader.open(INDEX));
+  EXPECT_EQ(reader.header().formatVersion, 3);
+  EXPECT_EQ(reader.header().nextFirstSeen, 123);
+  for (uint16_t i = 0; i < reader.bookCount(); ++i) {
+    ClixRecord record;
+    std::string path;
+    ASSERT_TRUE(reader.readRecord(i, record));
+    ASSERT_TRUE(reader.readPath(record, path));
+    EXPECT_EQ(record.firstSeen, arrivals[path]);
+  }
 }

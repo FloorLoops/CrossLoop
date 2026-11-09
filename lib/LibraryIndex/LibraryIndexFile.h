@@ -25,6 +25,10 @@ enum class SortOrder : uint8_t {
   TitleDesc,
   AuthorAsc,
   AuthorDesc,
+  GenreAsc,
+  GenreDesc,
+  SeriesAsc,
+  SeriesDesc,
 };
 
 // One book to locate in the index: the complete-path hash (clixPathHash) is
@@ -88,6 +92,9 @@ class LibraryIndexFile {
   // Cleaned author spelling before the library-wide spelling vote. Empty is a
   // valid value, so success is independent of `out.empty()`.
   bool readSourceAuthor(const ClixRecord& record, std::string& out);
+  bool readGenre(const ClixRecord& record, std::string& out);
+  bool readSeries(const ClixRecord& record, std::string& out);
+  bool readSeriesNumber(const ClixRecord& record, std::string& out);
 
   // Absolute path of the book, rebuilt from its folder record.
   bool readPath(const ClixRecord& record, std::string& out);

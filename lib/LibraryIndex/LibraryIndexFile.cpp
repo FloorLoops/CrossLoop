@@ -32,8 +32,8 @@ bool LibraryIndexFile::openImpl(const char* path, const bool acceptStaleFold) {
     return false;
   }
 
-  lastValidity =
-      acceptStaleFold ? validateHeaderStructure(head, file.fileSize64()) : validateHeader(head, file.fileSize64());
+  lastValidity = acceptStaleFold ? validateHeaderStructure(head, file.fileSize64(), true)
+                                 : validateHeader(head, file.fileSize64());
   if (lastValidity != ClixValidity::Ok) {
     LOG_INF("LIBIDX", "index rejected: %s", clixValidityName(lastValidity));
     file.close();
@@ -65,6 +65,20 @@ uint16_t LibraryIndexFile::ordinalForRow(const SortOrder order, const uint16_t r
   if (!opened || row >= head.bookCount) return NONE;
 
   switch (order) {
+    case SortOrder::GenreAsc:
+    case SortOrder::GenreDesc:
+    case SortOrder::SeriesAsc:
+    case SortOrder::SeriesDesc: {
+      if (head.formatVersion < 3) return NONE;
+      const bool descending = order == SortOrder::GenreDesc || order == SortOrder::SeriesDesc;
+      const uint16_t k = descending ? static_cast<uint16_t>(head.bookCount - 1 - row) : row;
+      const bool series = order == SortOrder::SeriesAsc || order == SortOrder::SeriesDesc;
+      uint16_t ordinal = NONE;
+      return readAt(series ? seriesOrderOffset(head, k) : genreOrderOffset(head, k), &ordinal, sizeof(ordinal)) &&
+                     ordinal < head.bookCount
+                 ? ordinal
+                 : NONE;
+    }
     case SortOrder::TitleAsc:
       // The record section IS in title order, so this costs no storage and no
       // read at all.
@@ -162,7 +176,7 @@ bool LibraryIndexFile::readRecord(const uint16_t ordinal, ClixRecord& out) {
   // it at each call site would mean fixing it again at the next one.
   out.foldLen = static_cast<uint8_t>(std::min<size_t>(out.foldLen, CLIX_FOLD_BYTES));
   out.authorKeyLen = static_cast<uint8_t>(std::min<size_t>(out.authorKeyLen, CLIX_AUTHOR_KEY_BYTES));
-  if (out.metadataStatus > CLIX_METADATA_FAILED) return false;
+  if (out.metadataStatus > (head.formatVersion >= 3 ? CLIX_METADATA_OVERRIDDEN : CLIX_METADATA_FAILED)) return false;
   // nameOff is u32 and every reader adds a length to it before comparing against
   // the section size. A forged value near the top of the range wraps that sum and
   // passes the bounds check it was supposed to fail, so it is rejected here
@@ -229,6 +243,18 @@ bool LibraryIndexFile::readTitle(const ClixRecord& record, std::string& out) {
 
 bool LibraryIndexFile::readSourceAuthor(const ClixRecord& record, std::string& out) {
   return readBlobField(record, 2, out);
+}
+bool LibraryIndexFile::readGenre(const ClixRecord& record, std::string& out) {
+  out.clear();
+  return head.formatVersion < 3 || readBlobField(record, 3, out);
+}
+bool LibraryIndexFile::readSeries(const ClixRecord& record, std::string& out) {
+  out.clear();
+  return head.formatVersion < 3 || readBlobField(record, 4, out);
+}
+bool LibraryIndexFile::readSeriesNumber(const ClixRecord& record, std::string& out) {
+  out.clear();
+  return head.formatVersion < 3 || readBlobField(record, 5, out);
 }
 
 bool LibraryIndexFile::readPath(const ClixRecord& record, std::string& out) {

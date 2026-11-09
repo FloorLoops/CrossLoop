@@ -47,6 +47,7 @@
 #include "fontIds.h"
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/ButtonNavigator.h"
+#include "util/LightRestorePolicy.h"
 #include "util/PluginEvents.h"
 #include "util/ScreenshotUtil.h"
 #include "util/SlideSwitch.h"
@@ -366,16 +367,9 @@ static bool loadSleepFrameBuffer() {
   return true;
 }
 
-// Plugin-event delivery on the way into deep sleep. sleep.enter is delivered
-// now — over the live connection, or by bringing WiFi up when a plugin
-// subscribes (e.g. fetching a fresh /sleep.bmp so THIS sleep shows it — the
-// drain runs before goToSleep() renders the sleep screen). The connect path
-// is bounded (join deadline + drain event budget), skipped on low battery,
-// and sleep is never blocked on the network: a failed join or delivery just
-// sleeps with the previous image and the queued events retry on the next
-// drain (at-least-once). The caller's WiFi shutdown tears the radio down
-// either way. Deferrable events already queued (reader.exit) ride along in
-// the same drain.
+// Queue sleep/progress events before rendering. Cached-first mode leaves them
+// for the next online drain. Optional refresh-before-sleep uses the bounded
+// join/drain path; failed delivery retains both the image and queued events.
 static void deliverSleepPluginEvents(const bool allowNetwork) {
   // Activity-owned state must be queued before sleep.enter and before this
   // same-sleep drain. The hook is idempotent with ordinary activity teardown.
@@ -398,7 +392,7 @@ static void deliverSleepPluginEvents(const bool allowNetwork) {
     vars[varCount++] = {"end_percent", endPercent};
   }
   pluginevents::emit(pluginevents::Event::SleepEnter, vars, varCount);
-  if (!allowNetwork) return;
+  if (!allowNetwork || !SETTINGS.refreshBeforeSleep) return;
   if (WiFi.status() == WL_CONNECTED) {
     pluginevents::drain(&renderer);
     return;
@@ -466,6 +460,7 @@ static bool holdSleepWhileUsbPowered() {
 
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout = false) {
+  const auto sleepStartedAt = millis();
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
 
@@ -486,10 +481,16 @@ void enterDeepSleep(bool fromTimeout = false) {
   // Every sleep mode leaves a complete retained frame on the e-ink panel. Keep
   // it visible until the first useful reader or home paint replaces it.
   APP_STATE.showBootScreen = false;
+  APP_STATE.sleepLightOn = Frontlight.isOn();
+  APP_STATE.sleepLightEpoch = halClock.isAvailable() ? static_cast<int64_t>(time(nullptr)) : 0;
 
   APP_STATE.saveToFile();
 
   activityManager.goToSleep(fromTimeout);
+  const auto sleepHeap = HalMemory::getInternalHeap();
+  LOG_INF("SLP", "Prepared in %lu ms; internal free=%u largest=%u stack=%u", millis() - sleepStartedAt,
+          static_cast<unsigned>(sleepHeap.freeBytes), static_cast<unsigned>(sleepHeap.largestBlockBytes),
+          static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
 
   if (isQuickResumeSleep) {
     saveSleepFrameBuffer();
@@ -695,10 +696,18 @@ void setup() {
   // reboots replay the live state captured at restart, so they neither go dark
   // nor light up against the user's wake preference. A slide switch bound to
   // the light decides it from its position instead.
-  const bool restoreLightOn = isSilentReboot ? silentRebootLightOn
-                              : slideSwitchOwnsLight()
-                                  ? gpio.isToggleSwitchOn()
-                                  : (SETTINGS.frontlightOn != 0 && SETTINGS.frontlightRestoreOnWake != 0);
+  const bool restoreLightOn =
+      isSilentReboot ? silentRebootLightOn
+      : slideSwitchOwnsLight()
+          ? gpio.isToggleSwitchOn()
+          : crossloop::restoreLight(SETTINGS.frontlightRestoreOnWake, SETTINGS.frontlightOn != 0, isPersistedSleepWake,
+                                    APP_STATE.sleepLightOn, APP_STATE.sleepLightEpoch,
+                                    halClock.isAvailable() ? time(nullptr) : 0, SETTINGS.frontlightRestoreMinutes);
+  if (APP_STATE.sleepLightEpoch != 0 || APP_STATE.sleepLightOn) {
+    APP_STATE.sleepLightEpoch = 0;
+    APP_STATE.sleepLightOn = false;
+    APP_STATE.saveToFile();
+  }
   Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, restoreLightOn);
 
   switch (wakeupReason) {

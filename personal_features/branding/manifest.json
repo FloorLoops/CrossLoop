@@ -1,0 +1,88 @@
+{
+  "concept": "Crossed Orbits",
+  "selected_by": "Elias",
+  "selection_date": "2026-11-08",
+  "method": "native SVG artwork; ImageMagick monochrome raster export",
+  "assets": [
+    {
+      "name": "standard",
+      "dimensions": [
+        120,
+        120
+      ],
+      "bytes": 1800,
+      "svg_sha256": "d83c02d349e503f1b96f7ea50b76d26ee47b61641747429ba5f9cb1321fac569",
+      "bitmap_sha256": "8895a67a5c41401e131f3b841f66587a1e387eb111696b5c02978e778315c4c5"
+    },
+    {
+      "name": "new-year",
+      "dimensions": [
+        120,
+        120
+      ],
+      "bytes": 1800,
+      "svg_sha256": "50b6da1c8bb5b507f9b3a94e5634d38020a98ed5514d9db12f23bff4b8858bc8",
+      "bitmap_sha256": "c66c49e67f56cd3878952afdeb10f3577a3bec2c05d54c0bcdc4a4eac1046d72"
+    },
+    {
+      "name": "valentine",
+      "dimensions": [
+        120,
+        120
+      ],
+      "bytes": 1800,
+      "svg_sha256": "f80255169b7e83c6458012b75d1947dc11d18ad6c9bbdba9f14c9b30e61857b0",
+      "bitmap_sha256": "0e89c424d732e3d43823b5714408d717509a90a5201c2c3d24c15be484554e21"
+    },
+    {
+      "name": "st-patrick",
+      "dimensions": [
+        120,
+        120
+      ],
+      "bytes": 1800,
+      "svg_sha256": "038a634a56b902b4ab8c32edf08f1765dc3f4b3e01c94db1a354532fbf489cb6",
+      "bitmap_sha256": "08c8aa8ee47f2446ea8189126e1cc539a3fb8073c0f5455e3e6156ef057bf812"
+    },
+    {
+      "name": "independence",
+      "dimensions": [
+        120,
+        120
+      ],
+      "bytes": 1800,
+      "svg_sha256": "09eedbf3909cc5ac472dffba4cec8189b04bf1d7ebe73655e051917a4ef1e601",
+      "bitmap_sha256": "cb3a6f3e5191198d80edc01c59285d6ea5c61bf61056f8c6e519cd21ea5b56f3"
+    },
+    {
+      "name": "halloween",
+      "dimensions": [
+        120,
+        120
+      ],
+      "bytes": 1800,
+      "svg_sha256": "7f02827899b7ea41508423adc060438af27813f3e110cc18132aa5ad49ea9f6b",
+      "bitmap_sha256": "0b7afae3d1464acb402a4666a21010e735bec889b7ac89f93ed9087338e66ba8"
+    },
+    {
+      "name": "thanksgiving",
+      "dimensions": [
+        120,
+        120
+      ],
+      "bytes": 1800,
+      "svg_sha256": "b512a0d765aff3eceeda0c71e5c70355908418f6bc9a248f6d62f8038bbc6b13",
+      "bitmap_sha256": "39f4dfe426f65cb8b86aa238a0b92bf49fa0e86a6fa8de8b9d53d637827bc2f4"
+    },
+    {
+      "name": "winter",
+      "dimensions": [
+        120,
+        120
+      ],
+      "bytes": 1800,
+      "svg_sha256": "59e8c8e30690fb099049962729d404cd3b17b4a30082480925f5d105fc3306b0",
+      "bitmap_sha256": "ae08374f2e850665abbad9cf74c15834cce628edfe05d04f23bcf8295396244a"
+    }
+  ]
+}

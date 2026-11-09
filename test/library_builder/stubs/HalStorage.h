@@ -25,6 +25,7 @@ inline int shortWrite = -1;
 inline int failTruncate = -1;
 inline int failRename = -1;
 inline int failAlloc = -1;
+inline size_t failAllocBytes = 0;
 inline bool failDirectorySeek = false;
 inline std::string failClosePath;
 inline std::string failWritePath;
@@ -56,6 +57,7 @@ inline void reset() {
   failTruncate = -1;
   failRename = -1;
   failAlloc = -1;
+  failAllocBytes = 0;
   failDirectorySeek = false;
   failClosePath.clear();
   failWritePath.clear();

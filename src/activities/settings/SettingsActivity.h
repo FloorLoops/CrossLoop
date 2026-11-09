@@ -30,6 +30,12 @@ enum class SettingAction {
   TextSettings,
 #if FREEINK_DEVICE_X4PRO || (FREEINK_DEVICE_X3 && !FREEINK_DEVICE_X4)
   ChooseSleepImage,
+  TickTick,
+  Feeds,
+  ReadingStats,
+  ImportImage,
+  Weather,
+  Calendar,
 #endif
   Plugins,
   KeyboardLayouts,

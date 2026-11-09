@@ -8,9 +8,8 @@
 #include <vector>
 
 /**
- * HTTP client utility for fetching content and downloading files. Built on
- * esp_http_client: https is verified against the CA bundle, plain http is
- * used for local servers (transport is chosen from the URL scheme).
+ * Legacy HTTP utility using the SDK wolfSSL client with certificate checks
+ * disabled. New CrossLoop account and web requests use VerifiedDownload.
  */
 class HttpDownloader {
  public:

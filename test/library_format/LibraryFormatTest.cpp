@@ -30,7 +30,7 @@ TEST(LibraryFormat, StructSizesAreFrozen) {
   EXPECT_EQ(sizeof(ClixHeader), 64u);
   EXPECT_EQ(sizeof(ClixRecord), 128u);
   EXPECT_EQ(sizeof(ClixFolderHeader), 1u);
-  EXPECT_EQ(CLIX_FORMAT_VERSION, 2u);
+  EXPECT_EQ(CLIX_FORMAT_VERSION, 3u);
 }
 
 TEST(LibraryFormat, RecordsTileSectorsExactly) {
@@ -90,7 +90,17 @@ TEST(LibraryFormat, SizeArithmeticMatchesTheSpecTable) {
   EXPECT_EQ(h.folderStart, 512u);
   EXPECT_EQ(h.recordStart, 2048u);
   EXPECT_EQ(h.permStart, 2048u + 25600u);
-  EXPECT_EQ(h.selfSize, 44672u);
+  EXPECT_EQ(h.selfSize, 45696u);
+}
+
+TEST(LibraryFormatValidation, VersionTwoIsAcceptedOnlyForReconciliation) {
+  auto h = makeHeader(200, 116);
+  h.formatVersion = 2;
+  layoutSections(h, h.folderLen, h.nameLen);
+  EXPECT_EQ(validateHeader(h, h.selfSize), ClixValidity::UnknownFormatVersion);
+  EXPECT_EQ(validateHeaderStructure(h, h.selfSize, true), ClixValidity::Ok);
+  h.selfSize--;
+  EXPECT_NE(validateHeaderStructure(h, h.selfSize, true), ClixValidity::Ok);
 }
 
 TEST(LibraryFormatValidation, AcceptsAWellFormedHeader) {

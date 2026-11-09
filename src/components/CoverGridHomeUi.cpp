@@ -289,8 +289,7 @@ void CoverGridHomeUi::drawTabs(UiScreen& screen, fui::Rect rect) {
   static constexpr const uint8_t* ICONS[] = {
       FolderIcon,   LibraryIcon, BlocksIcon, TransferIcon, Settings2Icon,
 #if FREEINK_DEVICE_X4PRO || (FREEINK_DEVICE_X3 && !FREEINK_DEVICE_X4)
-      BookmarkIcon,
-      BookIcon,
+      BookmarkIcon, BookIcon,
 #endif
   };
   int count = 0;

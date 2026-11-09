@@ -136,6 +136,11 @@ bool DictionaryDefinitionActivity::enableLookup(Dictionary& dictionary, std::str
 
 void DictionaryDefinitionActivity::onEnter() {
   Activity::onEnter();
+#if FREEINK_DEVICE_X4PRO || (FREEINK_DEVICE_X3 && !FREEINK_DEVICE_X4)
+  resetUi();
+  app.on(1, &DictionaryDefinitionActivity::saveAction, this);
+  app.setScreen(&DictionaryDefinitionActivity::saveScreen, this);
+#endif
   initialLayoutFailed = !prepareDefinition(content);
   if (initialLayoutFailed) {
     content.lines.clear();
@@ -160,6 +165,7 @@ bool DictionaryDefinitionActivity::prepareDefinition(Definition& next, const boo
 }
 
 void DictionaryDefinitionActivity::onExit() {
+  closeRouting();
   Activity::onExit();
   if (auto* fcm = renderer.getFontCacheManager()) {
     fcm->releaseSdFontCaches();
@@ -180,8 +186,11 @@ DictionaryDefinitionActivity::BodyArea DictionaryDefinitionActivity::bodyArea() 
   const int contentRight =
       std::max(right, orientation == GfxRenderer::Orientation::LandscapeCounterClockwise ? hintGutterWidth : 0);
   const int x = contentLeft + metrics.contentSidePadding;
-  const int y = std::max(top, isInverted ? metrics.buttonHintsHeight : 0) + metrics.topPadding + metrics.headerHeight +
-                metrics.verticalSpacing;
+  int y = std::max(top, isInverted ? metrics.buttonHintsHeight : 0) + metrics.topPadding + metrics.headerHeight +
+          metrics.verticalSpacing;
+#if FREEINK_DEVICE_X4PRO || (FREEINK_DEVICE_X3 && !FREEINK_DEVICE_X4)
+  if (lookup && mappedInput.hasTouch()) y += 48;
+#endif
   const int bottomArea = std::max(bottom, metrics.buttonHintsHeight) + metrics.verticalSpacing;
   return {x, y, renderer.getScreenWidth() - contentLeft - contentRight - 2 * metrics.contentSidePadding,
           renderer.getScreenHeight() - y - bottomArea};
@@ -583,6 +592,13 @@ void DictionaryDefinitionActivity::saveWord() {
   const auto name = StringUtils::sanitizeFilename(content.headword, 72);
   const auto suffix = std::to_string(std::hash<std::string>{}(content.headword));
   const auto path = std::string(directory) + "/" + name + " - " + suffix + ".txt";
+  if (Storage.exists(path.c_str())) {
+    auto saved = Storage.open(path.c_str());
+    // A saved word may contain the user's later notes. Re-saving keeps them.
+    showMessage(saved && !saved.isDirectory() && saved.size() > 0 ? StrId::STR_PERSONAL_WORD_SAVED
+                                                                  : StrId::STR_FAILED_LOWER);
+    return;
+  }
   const auto temporary = path + ".part";
   HalFile file;
   if (!Storage.openFileForWrite("DICT", temporary, file)) {
@@ -600,8 +616,7 @@ void DictionaryDefinitionActivity::saveWord() {
   }
   if (content.pages.empty()) {
     size_t count = std::min(maxDefinitionBytes, content.text.size());
-    while (count < content.text.size() && count > 0 &&
-           (static_cast<uint8_t>(content.text[count]) & 0xC0) == 0x80) {
+    while (count < content.text.size() && count > 0 && (static_cast<uint8_t>(content.text[count]) & 0xC0) == 0x80) {
       --count;
     }
     auto text = std::string_view(content.text).substr(0, count);
@@ -634,9 +649,28 @@ void DictionaryDefinitionActivity::saveWord() {
   }
   ok = ok && write("\n");
   ok = file.close() && ok;
-  ok = ok && Storage.replaceFile(temporary.c_str(), path.c_str());
+  ok = ok && !Storage.exists(path.c_str()) && Storage.rename(temporary.c_str(), path.c_str());
   if (!ok) Storage.remove(temporary.c_str());
   showMessage(ok ? StrId::STR_PERSONAL_WORD_SAVED : StrId::STR_FAILED_LOWER);
+}
+
+void DictionaryDefinitionActivity::saveAction(const freeink::ui::ActionEvent&, void* user) {
+  static_cast<DictionaryDefinitionActivity*>(user)->saveWord();
+}
+
+void DictionaryDefinitionActivity::saveScreen(UiScreen& screen, void* user) {
+  auto* self = static_cast<DictionaryDefinitionActivity*>(user);
+  if (!self->lookup || !self->mappedInput.hasTouch() || self->messageVisible) return;
+  const auto body = self->bodyArea();
+  const int width = std::min(body.width, 280);
+  const freeink::ui::Rect rect{static_cast<int16_t>(body.x + (body.width - width) / 2),
+                               static_cast<int16_t>(body.y - 48), static_cast<int16_t>(width), 40};
+  freeink::ui::ButtonProps button;
+  button.label = tr(STR_CROSSLOOP_SAVE_WORD);
+  button.action = 1;
+  button.inputMask = freeink::ui::InputTouch;
+  button.text = screen.theme().bodyText;
+  freeink::ui::button(screen.frame(), rect, button);
 }
 #endif
 
@@ -649,6 +683,15 @@ void DictionaryDefinitionActivity::loop() {
     navigateDefinition(false);
     return;
   }
+#if FREEINK_DEVICE_X4PRO || (FREEINK_DEVICE_X3 && !FREEINK_DEVICE_X4)
+  if (messageVisible) {
+    if (millis() - messageTime < MESSAGE_DURATION_MS) return;
+  } else {
+    const auto touch = routeTouch(mappedInput);
+    if (touch.routed && app.invalidated()) requestUpdate();
+    if (touch) return;
+  }
+#endif
   if (messageVisible && millis() - messageTime >= MESSAGE_DURATION_MS) {
     RenderLock lock(RenderLock::Mode::Try);
     if (lock.ownsLock()) {
@@ -673,7 +716,7 @@ void DictionaryDefinitionActivity::loop() {
       finish();
     return;
   }
-  if (longPress && SETTINGS.touchReaderControls) {
+  if (longPress && SETTINGS.touchReaderControls && sy >= bodyArea().y) {
     startSelection(sx, sy);
     return;
   }
@@ -793,6 +836,9 @@ void DictionaryDefinitionActivity::render(RenderLock&&) {
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), lookup ? tr(STR_LOOKUP) : "", (currentPage > 0 ? "<" : ""),
                                             (currentPage + 1 < totalPages ? ">" : ""));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+#if FREEINK_DEVICE_X4PRO || (FREEINK_DEVICE_X3 && !FREEINK_DEVICE_X4)
+  renderUi();
+#endif
   if (messageVisible) {
     GUI.drawPopup(renderer, I18N.get(message));
     return;

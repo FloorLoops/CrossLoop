@@ -2,6 +2,8 @@
 #include <HalStorage.h>
 #include <gtest/gtest.h>
 
+#include "util/BookDetails.h"
+
 namespace {
 using Result = ClippingStore::AddResult;
 Result add(ClippingStore& store, const std::string& text = "one", const char* title = "Chapter") {
@@ -223,6 +225,7 @@ TEST(ClippingStore, MovesFolderWithClipsAndDeletionJournalAndRollsBackFailure) {
   for (const int failure : {-1, 0, 1, 2, 3}) {
     fake::reset();
     fake::add("/books/sub/book.epub");
+    fake::add("/books/sub/book.epub.crossloop-meta", "custom details");
     ClippingStore store;
     ASSERT_TRUE(store.loadForBook("/books/sub/book.epub", "Book", "Author", "epub"));
     ASSERT_EQ(add(store), Result::Added);
@@ -238,6 +241,7 @@ TEST(ClippingStore, MovesFolderWithClipsAndDeletionJournalAndRollsBackFailure) {
     if (moved) {
       EXPECT_FALSE(Storage.exists("/books/sub/book.epub"));
       EXPECT_TRUE(Storage.exists("/renamed/sub/book.epub"));
+      EXPECT_TRUE(Storage.exists("/renamed/sub/book.epub.crossloop-meta"));
       EXPECT_FALSE(Storage.exists(oldStore.c_str()));
       ASSERT_TRUE(store.loadForBook("/renamed/sub/book.epub", "", "", "epub"));
       EXPECT_EQ(store.clippingCount(), 1u);
@@ -250,6 +254,7 @@ TEST(ClippingStore, MovesFolderWithClipsAndDeletionJournalAndRollsBackFailure) {
       EXPECT_NE(id[0], 0);
     } else {
       EXPECT_TRUE(Storage.exists("/books/sub/book.epub"));
+      EXPECT_TRUE(Storage.exists("/books/sub/book.epub.crossloop-meta"));
       EXPECT_FALSE(Storage.exists("/renamed/sub/book.epub"));
       EXPECT_EQ(fake::files.at(oldStore)->bytes, original);
       EXPECT_EQ(fake::files.at(oldStore + ".deleted")->bytes, deleted);
@@ -280,4 +285,26 @@ TEST(ClippingStore, MoveRefusesExistingDestinationHistoryAndDeleteCleansSidecars
   EXPECT_FALSE(Storage.exists((path + ".deleted").c_str()));
   EXPECT_FALSE(Storage.exists((path + ".bak").c_str()));
   EXPECT_FALSE(Storage.exists((path + ".tmp").c_str()));
+}
+
+TEST(ClippingStore, BookDetailsMoveWithTheBookAndEachFailureRollsBack) {
+  for (int failure : {-1, 0, 1, 2, 3}) {
+    fake::reset();
+    fake::add("/one.epub");
+    for (const auto* suffix : crossloop::books::DETAILS_SUFFIXES) fake::add(std::string("/one.epub") + suffix, suffix);
+    fake::failRename = failure;
+    const bool moved = ClippingStore::moveBook("/one.epub", "/two.epub");
+    EXPECT_EQ(Storage.exists("/two.epub"), moved);
+    EXPECT_EQ(Storage.exists("/one.epub"), !moved);
+    for (const auto* suffix : crossloop::books::DETAILS_SUFFIXES) {
+      EXPECT_EQ(Storage.exists((std::string("/two.epub") + suffix).c_str()), moved);
+      EXPECT_EQ(Storage.exists((std::string("/one.epub") + suffix).c_str()), !moved);
+    }
+  }
+  fake::reset();
+  fake::add("/one.epub");
+  fake::add("/two.epub.crossloop-meta", "old saved details");
+  EXPECT_FALSE(ClippingStore::moveBook("/one.epub", "/two.epub"));
+  EXPECT_TRUE(Storage.exists("/one.epub"));
+  EXPECT_TRUE(Storage.exists("/two.epub.crossloop-meta"));
 }

@@ -24,6 +24,17 @@ TEST(ContentOpfParserMetadata, EntityCallbackDoesNotSplitOneAuthor) {
   EXPECT_EQ(parser.author, "Émile Zola");
 }
 
+TEST(ContentOpfParserMetadata, CapturesFirstSubjectAsPrimaryGenre) {
+  const std::string xml = R"(<package xmlns:dc="urn:dc"><metadata>
+    <dc:subject> Science &amp;   Nature </dc:subject><dc:subject>Another topic</dc:subject>
+    <dc:title>A book</dc:title></metadata></package>)";
+  ContentOpfParser parser("", "", xml.size(), nullptr, true);
+  ASSERT_TRUE(parser.setup());
+  EXPECT_LT(parser.write(reinterpret_cast<const uint8_t*>(xml.data()), xml.size()), xml.size());
+  EXPECT_EQ(parser.genre, "Science & Nature");
+  EXPECT_EQ(parser.title, "A book");
+}
+
 TEST(ContentOpfParserMetadata, ClampsOversizedMetadataTextInsteadOfGrowingUnbounded) {
   const std::string hugeTitle(64 * 1024, 'A');
   const std::string xml =

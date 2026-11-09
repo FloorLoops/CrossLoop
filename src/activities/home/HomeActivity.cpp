@@ -23,7 +23,10 @@
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
+#include "util/BookDetails.h"
 #if FREEINK_DEVICE_X4PRO || (FREEINK_DEVICE_X3 && !FREEINK_DEVICE_X4)
+#include "activities/network/TextWebActivity.h"
+#include "activities/network/TickTickActivity.h"
 #include "activities/util/BmpViewerActivity.h"
 #endif
 #include "components/UITheme.h"
@@ -48,6 +51,7 @@ void HomeActivity::loadRecentBooks(int maxBooks) {
   const auto& books = RECENT_BOOKS.getBooks();
   recentBooks.reserve(coverGridUi ? maxBooks : std::min(static_cast<int>(books.size()), maxBooks));
 
+  auto details = makeUniqueNoThrow<crossloop::books::Details>();
   for (const RecentBook& book : books) {
     // Limit to maximum number of recent books
     if (recentBooks.size() >= maxBooks) {
@@ -60,6 +64,10 @@ void HomeActivity::loadRecentBooks(int maxBooks) {
     }
 
     recentBooks.push_back(book);
+    if (details && crossloop::books::loadDetails(book.path, *details) == crossloop::books::DetailsResult::Ok) {
+      if (details->title[0]) recentBooks.back().title = details->title;
+      if (details->author[0]) recentBooks.back().author = details->author;
+    }
   }
 }
 
@@ -199,7 +207,13 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
           GUI.fillPopupProgress(renderer, popupRect, 10 + progress * (90 / recentBooks.size()));
           bool success = epub.generateThumbBmp(thumbHeight);
           if (!success) {
-            RECENT_BOOKS.updateBook(book.path, book.title, book.author, "");
+            // Keep the stored base metadata; Home's labels may be overrides.
+            for (const auto& original : RECENT_BOOKS.getBooks()) {
+              if (original.path == book.path) {
+                RECENT_BOOKS.updateBook(original.path, original.title, original.author, "");
+                break;
+              }
+            }
             book.coverBmpPath = "";
           }
           coverRendered = false;
@@ -216,7 +230,13 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
             GUI.fillPopupProgress(renderer, popupRect, 10 + progress * (90 / recentBooks.size()));
             bool success = xtc.generateThumbBmp(thumbHeight);
             if (!success) {
-              RECENT_BOOKS.updateBook(book.path, book.title, book.author, "");
+              // Keep the stored base metadata; Home's labels may be overrides.
+              for (const auto& original : RECENT_BOOKS.getBooks()) {
+                if (original.path == book.path) {
+                  RECENT_BOOKS.updateBook(original.path, original.title, original.author, "");
+                  break;
+                }
+              }
               book.coverBmpPath = "";
             }
             coverRendered = false;
@@ -335,24 +355,13 @@ void HomeActivity::loop() {
         break;
 #if FREEINK_DEVICE_X4PRO || (FREEINK_DEVICE_X3 && !FREEINK_DEVICE_X4)
       case HomeMenuItem::TICKTICK: {
-        auto activity =
-            makeUniqueNoThrow<BmpViewerActivity>(renderer, mappedInput, CrossPointSettings::PERSONAL_TICKTICK_PATH,
-                                                 BmpViewerActivity::Mode::TickTickSnapshot);
+        auto activity = makeUniqueNoThrow<TickTickActivity>(renderer, mappedInput);
         if (activity) startActivityForResult(std::move(activity), nullptr);
         break;
       }
       case HomeMenuItem::READ_LATER: {
-        constexpr char path[] = "/WebPages";
-        auto folder = Storage.open(path);
-        const bool available = folder ? folder.isDirectory() : Storage.mkdir(path);
-        if (folder) folder.close();
-        if (available) {
-          activityManager.goToFileBrowser(path);
-        } else {
-          GUI.drawPopup(renderer, tr(STR_FILE_OPEN_FAILED));
-          delay(800);
-          requestUpdate();
-        }
+        auto activity = makeUniqueNoThrow<TextWebActivity>(renderer, mappedInput);
+        if (activity) startActivityForResult(std::move(activity), nullptr);
         break;
       }
 #endif
@@ -559,7 +568,7 @@ void HomeActivity::render(RenderLock&&) {
 #if FREEINK_DEVICE_X4PRO || (FREEINK_DEVICE_X3 && !FREEINK_DEVICE_X4)
   menuItems.push_back(tr(STR_PERSONAL_SLEEP_TICKTICK));
   menuIcons.push_back(Bookmark);
-  menuItems.push_back(tr(STR_PERSONAL_READ_LATER));
+  menuItems.push_back(tr(STR_TEXT_WEB));
   menuIcons.push_back(Book);
 #endif
 

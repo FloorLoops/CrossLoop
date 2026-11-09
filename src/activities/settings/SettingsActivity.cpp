@@ -38,6 +38,13 @@
 #include <HalStorage.h>
 
 #include "activities/home/FileBrowserActivity.h"
+#include "activities/network/CalendarActivity.h"
+#include "activities/network/FeedActivity.h"
+#include "activities/network/ImageImportActivity.h"
+#include "activities/network/TickTickActivity.h"
+#include "activities/network/WeatherActivity.h"
+#include "activities/reader/ReadingStatsActivity.h"
+#include "util/SleepImageCache.h"
 #endif
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/IntervalSelectionActivity.h"
@@ -87,7 +94,7 @@ SettingsSection sectionFor(const SettingInfo& setting) {
 }
 
 // Device-only action rows added per section, beyond the shared list.
-constexpr size_t EXTRA_ROWS_PER_SECTION = 6;
+constexpr size_t EXTRA_ROWS_PER_SECTION = 9;
 }  // namespace
 
 void SettingsActivity::rebuildSettings() {
@@ -142,6 +149,14 @@ void SettingsActivity::rebuildSettings() {
   addAction(SettingsSection::Reader, StrId::STR_CLEAR_READING_CACHE, SettingAction::ClearCache);
 
   addAction(SettingsSection::Network, StrId::STR_WIFI_NETWORKS, SettingAction::Network);
+#if FREEINK_DEVICE_X4PRO || (FREEINK_DEVICE_X3 && !FREEINK_DEVICE_X4)
+  addAction(SettingsSection::Network, StrId::STR_PERSONAL_SLEEP_TICKTICK, SettingAction::TickTick);
+  addAction(SettingsSection::Network, StrId::STR_FEEDS, SettingAction::Feeds);
+  addAction(SettingsSection::Network, StrId::STR_WEATHER, SettingAction::Weather);
+  addAction(SettingsSection::Network, StrId::STR_CALENDAR, SettingAction::Calendar);
+  addAction(SettingsSection::Reader, StrId::STR_READING_STATS, SettingAction::ReadingStats);
+  addAction(SettingsSection::Display, StrId::STR_IMAGE_IMPORT, SettingAction::ImportImage);
+#endif
   if (bleturner::status().compiledIn) {
     addAction(SettingsSection::Network, StrId::STR_BT_PAGE_TURNER, SettingAction::Bluetooth);
   }
@@ -207,6 +222,23 @@ void SettingsActivity::activateIndex(const int index) {
 }
 
 void SettingsActivity::applyUiSettingChange(uint8_t CrossPointSettings::* valuePtr) {
+#if FREEINK_DEVICE_X4PRO || (FREEINK_DEVICE_X3 && !FREEINK_DEVICE_X4)
+  if ((valuePtr == &CrossPointSettings::sleepScreenCoverMode ||
+       valuePtr == &CrossPointSettings::sleepScreenCoverFilter) &&
+      SETTINGS.sleepScreen == CrossPointSettings::PERSONAL_FOLDER_IMAGE && SETTINGS.personalFolderImagePath[0] == '/') {
+    {
+      RenderLock lock(*this);
+      GUI.drawPopup(renderer, tr(STR_IMAGE_PREPARING));
+    }
+    std::string prepared;
+    const bool crop = SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::CROP;
+    if (!crossloop::prepareSleepImage(SETTINGS.personalFolderImagePath, crop,
+                                      crossloop::sleepOriginalThresholds(renderer), prepared)) {
+      RenderLock lock(*this);
+      GUI.drawPopup(renderer, tr(STR_IMAGE_PREPARE_FAILED));
+    }
+  }
+#endif
   // Theme changes take effect immediately, on this screen — reload the theme
   // and re-derive the app's tokens so the very next repaint is in the new look.
   if (valuePtr != &CrossPointSettings::uiTheme) {
@@ -298,6 +330,30 @@ void SettingsActivity::toggleSelectedSetting() {
       case SettingAction::ChooseSleepImage:
         openSleepImagePicker();
         return;
+      case SettingAction::TickTick:
+        if (auto activity = makeUniqueNoThrow<TickTickActivity>(renderer, mappedInput))
+          startActivityForResult(std::move(activity), resultHandler);
+        break;
+      case SettingAction::Feeds:
+        if (auto activity = makeUniqueNoThrow<FeedActivity>(renderer, mappedInput))
+          startActivityForResult(std::move(activity), resultHandler);
+        break;
+      case SettingAction::Weather:
+        if (auto activity = makeUniqueNoThrow<WeatherActivity>(renderer, mappedInput))
+          startActivityForResult(std::move(activity), resultHandler);
+        break;
+      case SettingAction::Calendar:
+        if (auto activity = makeUniqueNoThrow<CalendarActivity>(renderer, mappedInput))
+          startActivityForResult(std::move(activity), resultHandler);
+        break;
+      case SettingAction::ReadingStats:
+        if (auto activity = makeUniqueNoThrow<ReadingStatsActivity>(renderer, mappedInput))
+          startActivityForResult(std::move(activity), resultHandler);
+        break;
+      case SettingAction::ImportImage:
+        if (auto activity = makeUniqueNoThrow<ImageImportActivity>(renderer, mappedInput))
+          startActivityForResult(std::move(activity), resultHandler);
+        break;
 #endif
       case SettingAction::HomeButton: {
         // Activities must outlive this call and are owned by the activity stack.
@@ -478,16 +534,20 @@ void SettingsActivity::openSleepImagePicker() {
       return;
     }
     {
-      auto file = Storage.open(selected->path.c_str());
-      Bitmap bitmap(file);
-      if (!file || file.isDirectory() || bitmap.parseHeaders() != BmpReaderError::Ok) {
-        GUI.drawPopup(renderer, tr(STR_INVALID_BMP_FILE));
-        delay(800);
-        return;
-      }
+      RenderLock lock(*this);
+      GUI.drawPopup(renderer, tr(STR_IMAGE_PREPARING));
     }
-    char oldPath[sizeof(SETTINGS.personalFolderImagePath)];
-    std::memcpy(oldPath, SETTINGS.personalFolderImagePath, sizeof(oldPath));
+    std::string prepared;
+    const bool crop = SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::CROP;
+    if (!crossloop::prepareSleepImage(selected->path, crop, crossloop::sleepOriginalThresholds(renderer), prepared)) {
+      RenderLock lock(*this);
+      GUI.drawPopup(renderer, tr(STR_IMAGE_PREPARE_FAILED));
+      delay(800);
+      return;
+    }
+    auto oldPath = makeUniqueNoThrow<char[]>(sizeof(SETTINGS.personalFolderImagePath));
+    if (!oldPath) return;
+    std::memcpy(oldPath.get(), SETTINGS.personalFolderImagePath, sizeof(SETTINGS.personalFolderImagePath));
     const auto oldMode = SETTINGS.sleepScreen;
     const auto oldTimeout = SETTINGS.quickResumeSleepScreen;
     const auto oldAuto = quickResumeTimeoutAutoEnabled;
@@ -495,7 +555,7 @@ void SettingsActivity::openSleepImagePicker() {
     SETTINGS.sleepScreen = CrossPointSettings::PERSONAL_FOLDER_IMAGE;
     syncQuickResumeTimeoutForSleepScreen(true, false);
     if (!SETTINGS.saveToFile()) {
-      std::memcpy(SETTINGS.personalFolderImagePath, oldPath, sizeof(oldPath));
+      std::memcpy(SETTINGS.personalFolderImagePath, oldPath.get(), sizeof(SETTINGS.personalFolderImagePath));
       SETTINGS.sleepScreen = oldMode;
       SETTINGS.quickResumeSleepScreen = oldTimeout;
       quickResumeTimeoutAutoEnabled = oldAuto;

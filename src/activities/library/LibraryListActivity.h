@@ -10,6 +10,7 @@
 #include "RecentBooksStore.h"
 #include "activities/UiTabListActivity.h"
 #include "components/OptionPopup.h"
+#include "util/BookDetails.h"
 
 // One Library screen: every indexed book on the card shown by recency, title,
 // or author. The Recent shelf orders by file modification time (when a book
@@ -80,8 +81,8 @@ class LibraryListActivity final : public UiTabListActivity {
   void openBookByPath(const std::string& path);
   void promptRebuildIndex();
   void resetAfterRebuild();
-  // Recent-row long-press menu: open / remove from recents / delete / rebuild.
-  void showRecentBookOptions(int entry);
+  void showBookOptions(int entry);
+  void editBookDetails(const std::string& path);
   void promptRemoveRecentBook(const std::string& path, const std::string& title);
   // Long-press delete owns the gesture where grouping does not apply: the
   // Recent sort, degraded lists, and any active search result.
@@ -142,6 +143,8 @@ class LibraryListActivity final : public UiTabListActivity {
   void refreshOverlap();
 
   library::LibraryIndexFile index;
+  // Reuse one 533-byte workspace for pinned rows instead of allocating per paint.
+  crossloop::books::Details pinnedDetails{};
   int activeTabIndex = 0;
   library::SortOrder sortOrder = library::SortOrder::RecentDesc;
   // One bit per tab; Recent starts descending (newest first).
@@ -149,6 +152,7 @@ class LibraryListActivity final : public UiTabListActivity {
   // Set when the walk finished but the sort did not, so the screen can say the
   // order is discovery order rather than silently showing a wrong one.
   bool degraded = false;
+  bool rebuildFailed = false;
 
   // Rows surviving the current query, as positions in the active sort order.
   // Empty query means no filtering and this owns no allocation, so the ordinary

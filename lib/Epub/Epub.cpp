@@ -720,6 +720,9 @@ bool Epub::loadSyncMetadata(SyncMetadata& metadata) {
   if (!read) return false;
 
   metadata.isbn = std::move(parser.isbn);
+  metadata.title = std::move(parser.title);
+  metadata.author = std::move(parser.author);
+  metadata.genre = std::move(parser.genre);
   metadata.asin = std::move(parser.asin);
   metadata.series = std::move(parser.series);
   metadata.seriesIndex = parser.seriesIndex;

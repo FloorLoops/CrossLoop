@@ -14,6 +14,7 @@
 #include <functional>
 
 #include "clippings/ClippingPreview.h"
+#include "util/BookDetails.h"
 
 namespace {
 constexpr uint8_t LEGACY_VERSION = 1;
@@ -682,8 +683,25 @@ bool ClippingStore::moveBook(const std::string& from, const std::string& to) {
   const auto move = [&](const MovePhase phase) {
     return directory ? moveTreeStores(from, to, phase, stack.get(), name.get()) : moveStoreFiles(from, to, phase);
   };
-  if (!move(MovePhase::Check)) return false;
-  if (move(MovePhase::Move) && Storage.rename(from.c_str(), to.c_str())) return true;
+  const auto metadata = [&](MovePhase phase) {
+    if (directory) return true;  // Sidecars are already inside the moved folder.
+    for (const auto* suffix : crossloop::books::DETAILS_SUFFIXES) {
+      const auto oldPath = from + suffix, newPath = to + suffix;
+      if (phase == MovePhase::Check) {
+        if (Storage.exists(newPath.c_str())) return false;
+        auto file = Storage.open(oldPath.c_str());
+        if (file && file.isDirectory()) return false;
+      } else {
+        const auto& source = phase == MovePhase::Move ? oldPath : newPath;
+        const auto& target = phase == MovePhase::Move ? newPath : oldPath;
+        if (Storage.exists(source.c_str()) && !Storage.rename(source.c_str(), target.c_str())) return false;
+      }
+    }
+    return true;
+  };
+  if (!move(MovePhase::Check) || !metadata(MovePhase::Check)) return false;
+  if (move(MovePhase::Move) && metadata(MovePhase::Move) && Storage.rename(from.c_str(), to.c_str())) return true;
+  if (!metadata(MovePhase::Rollback)) LOG_ERR("CLIP", "Book details move rollback failed");
   if (!move(MovePhase::Rollback)) {
     LOG_ERR("CLIP", "Book move rollback failed: %s -> %s", from.c_str(), to.c_str());
   }

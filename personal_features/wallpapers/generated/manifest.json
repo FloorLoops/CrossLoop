@@ -1,0 +1,38 @@
+[
+  {
+    "height": 800,
+    "width": 480,
+    "name": "Forest-Dawn",
+    "bytes": 48062,
+    "bpp": 1,
+    "device": "x4pro",
+    "sha256": "c454ac56c57951af34df6fc8ab8a33242a6d27ed0d6dba5cddad40f007af999a"
+  },
+  {
+    "height": 800,
+    "width": 480,
+    "name": "Quiet-Orbit",
+    "bytes": 48062,
+    "bpp": 1,
+    "device": "x4pro",
+    "sha256": "e5ffd5975976d11b014754e71f53c2597941c7311a5be913883322e6d3ef4530"
+  },
+  {
+    "height": 792,
+    "width": 528,
+    "name": "Forest-Dawn",
+    "bytes": 53918,
+    "bpp": 1,
+    "device": "x3",
+    "sha256": "2e256950ca7a88b5b493bb1bcc8813251d330e2edb809febd4e74f0ac9b54447"
+  },
+  {
+    "height": 792,
+    "width": 528,
+    "name": "Quiet-Orbit",
+    "bytes": 53918,
+    "bpp": 1,
+    "device": "x3",
+    "sha256": "754fa702b4901d419589fc71f610a89e0d30f5574fb800bf82a029c137ef3297"
+  }
+]
