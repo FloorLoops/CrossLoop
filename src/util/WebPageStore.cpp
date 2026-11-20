@@ -14,7 +14,7 @@
 
 namespace crossloop::web {
 namespace {
-constexpr char MAGIC[8] = {'C', 'L', 'W', 'E', 'B', '0', '1', '\n'};
+constexpr char MAGIC[8] = {'C', 'L', 'W', 'E', 'B', '0', '2', '\n'};
 
 void put32(uint8_t* out, uint32_t value) {
   for (int i = 0; i < 4; ++i) out[i] = static_cast<uint8_t>(value >> (8 * i));
@@ -31,17 +31,21 @@ struct PageMetadata {
   uint32_t textBytes;
   uint32_t links;
   int64_t syncedAt;
+  uint32_t bodyOffset;
+  uint16_t linkBytes;
 };
 bool readHeader(HalFile& file, char* url, PageMetadata& info) {
   uint8_t header[32];
-  if (file.size() < BODY_OFFSET || file.read(header, sizeof(header)) != sizeof(header) ||
-      memcmp(header, MAGIC, sizeof(MAGIC)))
+  if (file.read(header, sizeof(header)) != sizeof(header) || memcmp(header, MAGIC, 6) ||
+      (header[6] != '1' && header[6] != '2') || header[7] != '\n')
     return false;
+  info.linkBytes = header[6] == '1' ? LEGACY_LINK_BYTES : LINK_BYTES;
+  info.bodyOffset = HEADER_BYTES + MAX_LINKS * info.linkBytes;
   info.textBytes = get32(header + 8);
   info.links = get32(header + 12);
   const uint64_t epoch = static_cast<uint64_t>(get32(header + 16)) | (static_cast<uint64_t>(get32(header + 20)) << 32);
   info.syncedAt = epoch >= 1735689600 && epoch < 4102444800 ? static_cast<int64_t>(epoch) : 0;
-  if (info.textBytes > MAX_TEXT || info.links > MAX_LINKS || file.size() != BODY_OFFSET + info.textBytes ||
+  if (info.textBytes > MAX_TEXT || info.links > MAX_LINKS || file.size() != info.bodyOffset + info.textBytes ||
       file.read(url, 1025) != 1025 || url[1024] != 0)
     return false;
   return validUrl(url);
@@ -51,7 +55,7 @@ bool openStoredPage(const std::string& key, HalFile& file, char* url, PageMetada
   if (path.empty()) return false;
   file = Storage.open(path.c_str());
   if (file && readHeader(file, url, metadata)) return true;
-  file.close();
+  if (file) file.close();
   file = Storage.open((path + ".bak").c_str());
   return file && readHeader(file, url, metadata);
 }
@@ -76,9 +80,12 @@ bool writeLink(void* context, const char* target, const char* label) {
   snprintf(state.link.url, sizeof(state.link.url), "%s", resolved.c_str());
   snprintf(state.link.label, sizeof(state.link.label), "%s", label);
   const size_t textPosition = state.output.position();
+  uint8_t markerOffset[4];
+  put32(markerOffset, state.textBytes);  // Parser flushed through the marker's separator.
   if (!state.output.seek(HEADER_BYTES + state.links * LINK_BYTES) ||
       state.output.write(state.link.url, sizeof(state.link.url)) != sizeof(state.link.url) ||
       state.output.write(state.link.label, sizeof(state.link.label)) != sizeof(state.link.label) ||
+      state.output.write(markerOffset, sizeof(markerOffset)) != sizeof(markerOffset) ||
       !state.output.seek(textPosition))
     return false;
   ++state.links;
@@ -106,17 +113,36 @@ bool openPageFile(const std::string& key, HalFile& file, PageInfo& info) {
   info.links = metadata.links;
   info.textBytes = metadata.textBytes;
   info.syncedAt = metadata.syncedAt;
+  info.bodyOffset = metadata.bodyOffset;
+  info.linkBytes = metadata.linkBytes;
   return true;
 }
-bool readPageLink(const std::string& key, unsigned index, PageLink& link) {
-  PageMetadata metadata{};
-  HalFile file;
-  if (!openStoredPage(key, file, link.url, metadata) || index >= metadata.links ||
-      !file.seek(HEADER_BYTES + index * LINK_BYTES) || file.read(link.url, sizeof(link.url)) != sizeof(link.url) ||
+namespace {
+bool readLinkRecord(HalFile& file, unsigned links, unsigned stride, uint32_t textBytes, unsigned index,
+                    PageLink& link) {
+  link.textOffset = UINT32_MAX;
+  if (!file || index >= links || !file.seek(HEADER_BYTES + index * stride) ||
+      file.read(link.url, sizeof(link.url)) != sizeof(link.url) ||
       file.read(link.label, sizeof(link.label)) != sizeof(link.label))
     return false;
+  if (stride == LINK_BYTES) {
+    uint8_t markerOffset[4];
+    if (file.read(markerOffset, sizeof(markerOffset)) != sizeof(markerOffset)) return false;
+    link.textOffset = get32(markerOffset);
+    if (link.textOffset >= textBytes) return false;
+  }
   link.url[1024] = link.label[127] = 0;
   return validUrl(link.url);
+}
+}  // namespace
+bool readPageLink(const std::string& key, unsigned index, PageLink& link) {
+  PageMetadata info{};
+  HalFile file;
+  return openStoredPage(key, file, link.url, info) &&
+         readLinkRecord(file, info.links, info.linkBytes, info.textBytes, index, link);
+}
+bool readPageLink(HalFile& file, const PageInfo& info, unsigned index, PageLink& link) {
+  return readLinkRecord(file, info.links, info.linkBytes, info.textBytes, index, link);
 }
 
 bool importPage(const std::string& rawPath, const std::string& url, bool plainText, std::string& key) {
@@ -134,7 +160,7 @@ bool importPage(const std::string& rawPath, const std::string& url, bool plainTe
   context->base = url;
   if (!Storage.openFileForWrite("WEB", temporary, context->output)) return false;
   ScopedCleanup cleanup{[&] {
-    context->output.close();
+    if (context->output) context->output.close();
     Storage.remove(temporary.c_str());
   }};
   // Reserve the fixed link index on SD; no in-memory page or link vector.
@@ -165,7 +191,7 @@ bool importPage(const std::string& rawPath, const std::string& url, bool plainTe
   auto previous = Storage.open(destination.c_str());
   PageMetadata metadata{};
   const bool primaryValid = previous && readHeader(previous, context->link.url, metadata);
-  previous.close();
+  if (previous) previous.close();
   if (!publishRecoverableFile(temporary, destination, primaryValid)) return false;
   key = nextKey;
   return true;
@@ -180,9 +206,9 @@ bool exportPageText(const std::string& key, std::string& textPath) {
   const std::string destination = std::string("/WebPages/") + key + ".txt";
   const std::string temporary = destination + ".part";
   HalFile output;
-  if (!source || !source.seek(BODY_OFFSET) || !Storage.openFileForWrite("WEB", temporary, output)) return false;
+  if (!source || !source.seek(info->bodyOffset) || !Storage.openFileForWrite("WEB", temporary, output)) return false;
   ScopedCleanup cleanup{[&] {
-    output.close();
+    if (output) output.close();
     Storage.remove(temporary.c_str());
   }};
   size_t remaining = info->textBytes;

@@ -1,4 +1,7 @@
 #include "LibraryListActivity.h"
+#if CROSSLOOP_DREAM_OS
+#include "util/SavedItems.h"
+#endif
 
 #include <BoardConfig.h>
 #include <FreeInkUIIcon.h>
@@ -295,36 +298,62 @@ void LibraryListActivity::showBookOptions(const int entry) {
     }
   }
 
-  const char* options[] = {tr(STR_OPEN), tr(STR_BOOK_DETAILS), tr(STR_DELETE), tr(STR_LIBRARY_REBUILD),
+  const char* options[] = {tr(STR_OPEN),
+                           tr(STR_BOOK_DETAILS),
+                           tr(STR_DELETE),
+                           tr(STR_LIBRARY_REBUILD),
+#if CROSSLOOP_DREAM_OS
+                           crossloop::saved::contains(crossloop::saved::Kind::Book, path.c_str())
+                               ? tr(STR_DREAM_UNPIN_BOOK)
+                               : tr(STR_DREAM_PIN_BOOK),
+#endif
                            isStoreRow ? tr(STR_REMOVE_FROM_RECENTS) : tr(STR_BOOK_SHOW_GROUPS)};
   const bool extra = isStoreRow || (query.empty() && groupable());
   app.clearTapFlash();
-  optionPopup.show(tr(STR_LIBRARY), title.c_str(), options, extra ? 5 : 4, 0,
-                   [this, path, title, isStoreRow, entry](const int choice) {
-                     swallowHeldReleases();
-                     switch (choice) {
-                       case 0:
-                         openBookByPath(path);
-                         break;
-                       case 1:
-                         editBookDetails(path);
-                         break;
-                       case 2:
-                         promptDeleteBookByPath(path, title);
-                         break;
-                       case 3:
-                         promptRebuildIndex();
-                         break;
-                       case 4:
-                         if (isStoreRow)
-                           promptRemoveRecentBook(path, title);
-                         else
-                           collapseGroups(entry);
-                         break;
-                       default:
-                         break;
-                     }
-                   });
+  optionPopup.show(
+      tr(STR_LIBRARY), title.c_str(), options,
+      (extra ? 5 : 4)
+#if CROSSLOOP_DREAM_OS
+          + 1
+#endif
+      ,
+      0, [this, path, title, isStoreRow, entry](const int choice) {
+        swallowHeldReleases();
+        switch (choice) {
+          case 0:
+            openBookByPath(path);
+            break;
+          case 1:
+            editBookDetails(path);
+            break;
+          case 2:
+            promptDeleteBookByPath(path, title);
+            break;
+          case 3:
+            promptRebuildIndex();
+            break;
+          case 4:
+#if CROSSLOOP_DREAM_OS
+          {
+            const auto saved = crossloop::saved::toggle(crossloop::saved::Kind::Book, title.c_str(), path.c_str());
+            if (saved != crossloop::saved::Result::Saved && saved != crossloop::saved::Result::Removed) {
+              RenderLock lock(*this);
+              GUI.drawPopup(renderer, saved == crossloop::saved::Result::Full ? tr(STR_DREAM_SAVED_FULL)
+                                                                              : tr(STR_DREAM_SAVED_FAILED));
+            }
+            break;
+          }
+          case 5:
+#endif
+            if (isStoreRow)
+              promptRemoveRecentBook(path, title);
+            else
+              collapseGroups(entry);
+            break;
+          default:
+            break;
+        }
+      });
   requestUpdate();
 }
 

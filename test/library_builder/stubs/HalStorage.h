@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cassert>
 #include <cstdint>
 #include <cstring>
 #include <map>
@@ -107,6 +108,7 @@ class HalFile {
   explicit operator bool() const { return bool(node); }
   bool isOpen() const { return bool(node); }
   bool close() {
+    assert(node && "HalFile::close requires an open handle");
     const bool failed = !fake::failClosePath.empty() && path == fake::failClosePath;
     if (failed) {
       fake::failClosePath.clear();

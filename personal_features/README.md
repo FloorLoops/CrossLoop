@@ -1,19 +1,110 @@
 # CrossLoop reader features
 
-CrossLoop is the custom OS name for the X4 Pro and X3 versions. The current testing milestone is v0.9; the installed candidate still displays Personal `1.0.0-rc.1`. This documentation adopts the name now. Firmware branding will change in a subsequent build. Feature acceptance and the requested timed light restore are tracked in [FEATURES.md](FEATURES.md).
+CrossLoop is the downstream firmware for the X4 Pro and X3. The shared baseline is
+**0.9.0-rc.5**. The isolated X4 Pro Dream OS candidate described below uses
+**0.9.0-rc.7**; this does not mean it is installed, published or accepted. See
+[NOV13-BROWSER.md](NOV13-BROWSER.md) for rc.5 Text Web behavior, tradeoffs and device
+checks, and [RC4-TESTING.md](RC4-TESTING.md) for the earlier native app set.
+Historical installation receipts below refer to their named versions.
 
-These downstream features use CrossPoint 2.0.0's SD plugin interfaces and existing reader and sleep renderers. Keep the firmware source on `personal/x4-pro`. The Python tools run on BRUTUS with Python 3.10+ and the Pillow version in `requirements.txt`.
+## X4 Pro Dream OS candidate
 
-## Text Web
+In the personal `x4pro-native-probe` profile, Home's former TickTick shortcut opens
+**Apps & Today**. Read, Today, Explore and Device tabs collect the reading and app
+screens. Tasks remain under Today. Read Later opens `/WebPages`; Explore's Text Web
+entry retains the offline text-page/history workflow. Existing service credentials
+and setup are reused; no service is configured automatically.
 
-Fetch a public HTTPS page on BRUTUS. The companion verifies TLS through Python's default trust store, bounds downloads to 256 KiB, extracts readable text and retains up to 16 HTTPS links. The native catalog lists the cached pages. Downloading an entry saves a TXT document in `/WebPages` for CrossPoint's normal e-ink text reader. Page turns use the existing reader controls. To follow a numbered link, run the host command with the printed page ID and link number, then restart the catalog server to publish the new snapshot.
+Hold a Library book and choose **Pin book**. Open pins from Read → Pinned books.
+Browser Menu can bookmark the current address. Pins and web bookmarks share a
+32-entry SD list with checksums and a previous-good backup. A full list rejects new
+entries. Removing an entry leaves its book intact; moved books need a new pin.
+Each working table uses about 36 KiB of PSRAM; validation temporarily needs another
+table. Failed allocation or unavailable/corrupt storage reports a failure.
+
+Reading statistics adds a daily goal of 5–120 minutes and the hub shows today's
+estimated reading time. Resetting statistics keeps the goal. Set the reader's clock for daily attribution. Device health
+reports memory, SD, Wi-Fi and the presence of a retained crash report; it adds no
+background monitoring. A retained crash report may predate the current firmware.
+
+New text uses English fallback. Touch/button behavior and all four orientations
+(portrait, inverted portrait, landscape CW and landscape CCW), repeated navigation,
+sleep/wake and idle stability require physical acceptance. No added hub service
+depends on BRUTUS being on.
+
+## X4 Pro native browser
+
+Only the local `x4pro-native-probe` environment replaces Home's **Text Web** entry
+with **Web browser**. Open **Web browser**, choose **Open web address**, enter an
+HTTP/HTTPS address and complete Wi-Fi selection if needed. The native engine lays
+out HTML and CSS on the reader. Tap links; use Previous/Next or swipes to scroll,
+**Refresh this page** to reload and **Back** for history. Back during a load cancels
+that load and keeps the available page; Back with no history leaves the browser.
+Canceling address entry preserves the current page.
+
+This experiment has a 2 MiB engine allocation cap and a 512 KiB response limit.
+Menu adds forward history, search shortcuts, 75–200% zoom and bookmarks. Tap a form
+field, then use **Replace selected field text**; it replaces the whole field with
+up to 256 input bytes, subject to the site's own limit. Cancel leaves it unchanged.
+**Submit selected field** supports simple GET forms. JavaScript, page images, POST,
+uploads, saved page bodies, offline history and Read Later export are not provided
+by this screen. Cookie and history
+state are temporary; no persistent browser profile is written. Website support,
+display quality, total memory/stack headroom, network cancellation and idle
+stability have not been accepted on hardware. In particular, Wikipedia/news fit
+has not been established. The rc.5 text-browser instructions below describe a
+different screen and remain applicable to the ordinary build environments.
+
+The native experiment currently depends on the verified NetSurf/zlib archives,
+frontend sources and receipts at `D:\crossloop-netsurf-native-20261114`, the pinned
+source tree at `D:\crossloop-netsurf-probe-20261114`, and the copied pinned SDK.
+Its local PlatformIO hook checks `reader-link-inputs-lto.json`. The browser C
+libraries use size optimization (`-Oz`) and link-time optimization with the same pinned Xtensa compiler; the
+personal profile also enables LTO and size optimization for project code in `src/`.
+Other source-built libraries, precompiled SDK archives and the partition layout are retained. These
+are development prerequisites, not a portable published release. The later `Build-X4Pro.ps1`
+instructions do not recreate this native experiment. No firmware publication or
+device installation is established by this source tree or its version label.
+
+The embedded engine omits NetSurf's internal config, Choices, testament,
+image-cache diagnostics and chart-generator pages. Normal website content,
+blank/error pages and the engine's licence/credit routes are retained.
+Ad blocking remains disabled, and its unused stylesheet is not embedded.
+
+## rc.5 Text Web
+
+Open **Text Web** from Home. The reader's Wi-Fi can fetch HTTP/HTTPS text pages
+without BRUTUS. Enter an address or use **Search Google** or **Search Wikipedia**
+(the latter searches English Wikipedia). Successful downloads open the reading view.
+Tap an underlined numbered link, or choose **Links** and select a link from the list.
+Physical Confirm returns to that list; Previous/Next turn article pages.
+
+The page actions include **Back in history** and **Forward in history**, with up to
+32 visited pages remembered until Text Web closes. Saved pages and history work
+offline. Cached links reopen without a download; **Reload** requests a fresh copy.
+Failed/cancelled requests return to the page they started from, or Home when started
+there. **Read Later** opens exported TXT pages in the normal book reader.
+
+The cache keeps at most 32 pages, 32 links per page, 512 KiB of downloaded input and
+256 KiB of extracted text. Up to 20 complete inline markers per screen are tappable;
+all links are available through **Links**, including on button-only X3. Older caches
+remain readable, and gain inline markers after Reload. This is an HTML-to-text
+browser: JavaScript, visual CSS layouts, forms, cookies and browser login are not
+implemented. Search services may require consent, CAPTCHA or JavaScript and fail.
+
+### Optional companion/offline workflow
+
+The existing Python tools can still prepare TXT pages on a computer with Python 3.10+
+and the Pillow dependency in requirements.txt. They use their own host cache and
+16-link extraction limit; they are separate from the native browser.
 
 ```powershell
 python -B personal_features/browser.py --cache ../feature-preview/pages --url https://example.com/
 python -B personal_features/browser.py --cache ../feature-preview/pages --follow 0f115db062b7c0dd 1
 ```
 
-The second command is an example of the interface. Use a page and link number that actually exist in your cache. On-reader URL entry and live link activation remain future work. Pages that require scripts, logins, interactive forms, full CSS layout, or video need a companion browser that renders or extracts them. CrossPoint's ESP32-S3 X4 Pro target has 8 MB PSRAM, and the hardware still has only a few hundred KiB of internal RAM. [X4 Pro target](https://github.com/crosspoint-reader/crosspoint-reader/blob/2.0.0/platformio.ini) · [ESP32-S3 memory guidance](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/api-guides/external-ram.html) · [Upstream scope](https://github.com/crosspoint-reader/crosspoint-reader/blob/2.0.0/SCOPE.md)
+Use a page ID and link number that actually exist in the host cache. Restart the
+companion catalog server after changing its snapshot. This workflow is optional.
 
 ### Prepare a local offline SD package
 

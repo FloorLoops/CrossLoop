@@ -1,5 +1,8 @@
 # CrossLoop rc4 testing guide
 
+Historical rc4 guide: its one-step Back description applies only to rc4.
+For rc5 browser changes and acceptance checks, see [NOV13-BROWSER.md](NOV13-BROWSER.md).
+
 This describes the rc4 testing candidate. It is not an installation receipt.
 X4 Pro uses its 480 x 800 touch layout; X3 uses its own 528 x 792 button layout.
 X3 has no frontlight settings. Keep rc3 and the recovery files until both readers

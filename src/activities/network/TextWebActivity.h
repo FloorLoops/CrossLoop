@@ -4,6 +4,8 @@
 
 #include "activities/UiListActivity.h"
 #include "network/VerifiedDownload.h"
+#include "network/WebUrl.h"
+#include "util/WebHistory.h"
 #include "util/WebPageStore.h"
 
 class TextWebActivity final : public UiListActivity {
@@ -26,8 +28,13 @@ class TextWebActivity final : public UiListActivity {
   void onBackButton() override;
   void showHome();
   void showSaved();
-  void showPage(const std::string& key);
+  bool showPage(const std::string& key);
+  bool hasCachedPage(const std::string& key);
   void enterUrl();
+  void search(crossloop::web::SearchEngine engine);
+  void navigate(std::string url);
+  void travel(bool forward);
+  void restorePage();
   void fetchUrl(std::string url);
   void startDownload();
   void openText();
@@ -43,12 +50,12 @@ class TextWebActivity final : public UiListActivity {
   StrId status = StrId::STR_WEB_DESCRIPTION;
   std::string requestedUrl;
   std::string currentKey;
-  std::string previousKey;
-  std::string referrerKey;
+  crossloop::web::History history;
+  bool replacing = false;
   crossloop::web::PageInfo page;
   crossloop::web::PageLink link;
-  freeink::ui::ListItem rows[38]{};
-  char labels[38][128]{};
+  freeink::ui::ListItem rows[42]{};
+  char labels[42][128]{};
   char keys[32][33]{};
   int count = 0;
 };

@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -19,7 +20,7 @@ inline int shortReadAt = -1;
 class HalFile {
  public:
   HalFile() = default;
-  explicit HalFile(std::string path) : path(std::move(path)), opened(true) {}
+  explicit HalFile(std::string path) : path(std::move(path)), opened(true), initialized(true) {}
   explicit operator bool() const { return opened && fake::files.contains(path); }
   size_t size() const { return *this ? fake::files.at(path).size() : 0; }
   size_t position() const { return offset; }
@@ -48,6 +49,7 @@ class HalFile {
     return length;
   }
   bool close() {
+    assert(initialized);  // Real HalFile asserts on a default/moved-from handle.
     opened = false;
     return !fake::failClose;
   }
@@ -56,6 +58,7 @@ class HalFile {
   std::string path;
   size_t offset = 0;
   bool opened = false;
+  bool initialized = false;
 };
 class FakeStorage {
  public:

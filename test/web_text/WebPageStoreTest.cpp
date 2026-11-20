@@ -29,10 +29,15 @@ int main() {
   CHECK(readPageInfo(key, info));
   CHECK(std::string(info.url) == url);
   CHECK(info.links == 1);
+  CHECK(info.bodyOffset == BODY_OFFSET && info.linkBytes == LINK_BYTES);
   PageLink link;
   CHECK(readPageLink(key, 0, link));
   CHECK(std::string(link.url) == "https://example.com/next");
   CHECK(std::string(link.label) == "Next");
+  CHECK(link.textOffset == 16);
+  HalFile indexed;
+  CHECK(openPageFile(key, indexed, info));
+  CHECK(readPageLink(indexed, info, 0, link));
   CHECK(!readPageLink(key, 32, link));
   CHECK(!readPageInfo("../other", info));
   std::string text;
@@ -41,6 +46,24 @@ int main() {
   CHECK(std::string(fake::files[text].begin(), fake::files[text].end()) == "First page\nNext [1]");
   const auto saved = fake::files[pagePath(key)];
   const auto savedText = fake::files[text];
+  CHECK(!readPageInfo(std::string(32, 'a'), info));  // Missing files must not close a default handle.
+  // Read a genuine v1 layout after upgrading, including fallback and text export.
+  auto legacy = saved;
+  legacy[6] = '1';
+  for (size_t i = MAX_LINKS; i-- > 0;) {
+    const size_t position = HEADER_BYTES + i * LINK_BYTES + LEGACY_LINK_BYTES;
+    legacy.erase(legacy.begin() + position, legacy.begin() + position + 4);
+  }
+  fake::files[pagePath(key)] = legacy;
+  CHECK(readPageInfo(key, info));
+  CHECK(info.bodyOffset == HEADER_BYTES + MAX_LINKS * LEGACY_LINK_BYTES);
+  CHECK(readPageLink(key, 0, link) && link.textOffset == UINT32_MAX);
+  CHECK(exportPageText(key, text) && fake::files[text] == savedText);
+  fake::files[pagePath(key)] = saved;
+  // Corrupt marker offsets must never become touch targets.
+  for (int i = 0; i < 4; ++i) fake::files[pagePath(key)][HEADER_BYTES + LEGACY_LINK_BYTES + i] = 255;
+  CHECK(!readPageLink(key, 0, link));
+  fake::files[pagePath(key)] = saved;
   for (int point : {0, 1, 1024, static_cast<int>(BODY_OFFSET - 1), static_cast<int>(BODY_OFFSET + 5)}) {
     raw("<p>Second page with changed content</p>");
     fake::writesLeft = point;

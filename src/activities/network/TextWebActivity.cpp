@@ -30,9 +30,10 @@ void TextWebActivity::onEnter() {
   showHome();
   if (!requestedUrl.empty()) {
     const auto key = crossloop::web::pageKey(requestedUrl);
-    if (crossloop::web::readPageInfo(key, page))
+    if (hasCachedPage(key)) {
+      history.visit(key);
       showPage(key);
-    else
+    } else
       fetchUrl(requestedUrl);
   }
 }
@@ -53,17 +54,22 @@ void TextWebActivity::setRow(int index, const char* label) {
   rows[index].label = labels[index];
   rows[index].actionValue = static_cast<int16_t>(index);
 }
+bool TextWebActivity::hasCachedPage(const std::string& key) {
+  RenderLock lock(*this);
+  return crossloop::web::readPageInfo(key, page);
+}
 void TextWebActivity::showHome() {
   RenderLock lock(*this);
   screen = Screen::Home;
   closeRouting();
-  previousKey.clear();
-  referrerKey.clear();
-  count = feedsEnabled ? 4 : 3;
+  currentKey.clear();
+  count = feedsEnabled ? 6 : 5;
   setRow(0, tr(STR_WEB_OPEN_URL));
   setRow(1, tr(STR_WEB_SAVED));
   setRow(2, tr(STR_PERSONAL_READ_LATER));
-  setRow(3, tr(STR_FEEDS));
+  setRow(3, tr(STR_WEB_SEARCH_GOOGLE));
+  setRow(4, tr(STR_WEB_SEARCH_WIKIPEDIA));
+  setRow(5, tr(STR_FEEDS));
   nav.reset();
   requestUpdate();
 }
@@ -92,35 +98,44 @@ void TextWebActivity::showSaved() {
   status = count ? StrId::STR_WEB_OFFLINE : StrId::STR_WEB_NO_SAVED;
   requestUpdate();
 }
-void TextWebActivity::showPage(const std::string& key) {
+bool TextWebActivity::showPage(const std::string& key) {
   RenderLock lock(*this);
-  if (!crossloop::web::readPageInfo(key, page)) {
+  HalFile source;
+  if (!crossloop::web::openPageFile(key, source, page)) {
     status = StrId::STR_FILE_OPEN_FAILED;
     requestUpdate();
-    return;
+    return false;
   }
   currentKey = key;
   screen = Screen::Page;
   closeRouting();
   nav.reset();
-  count = 6 + page.links;
+  count = 10 + page.links;
   setRow(0, tr(STR_WEB_READ_PAGE));
   setRow(1, tr(STR_WEB_RELOAD));
   setRow(2, tr(STR_WEB_OPEN_URL));
   setRow(3, tr(STR_WEB_SAVED));
   setRow(4, tr(STR_WEB_DELETE_PAGE));
   setRow(5, tr(STR_WEB_EXPORT));
+  setRow(6, tr(STR_WEB_HISTORY_BACK));
+  setRow(7, tr(STR_WEB_HISTORY_FORWARD));
+  setRow(8, tr(STR_WEB_SEARCH_GOOGLE));
+  setRow(9, tr(STR_WEB_SEARCH_WIKIPEDIA));
   for (unsigned i = 0; i < page.links; ++i) {
-    if (crossloop::web::readPageLink(key, i, link))
-      setRow(6 + i, link.label);
+    if (crossloop::web::readPageLink(source, page, i, link))
+      setRow(10 + i, link.label);
     else
-      setRow(6 + i, tr(STR_WEB_UNSUPPORTED_LINK));
+      setRow(10 + i, tr(STR_WEB_UNSUPPORTED_LINK));
   }
   status = StrId::STR_WEB_OFFLINE;
   requestUpdate();
+  return true;
+}
+void TextWebActivity::restorePage() {
+  if (currentKey.empty() || !showPage(currentKey)) showHome();
 }
 void TextWebActivity::fail(StrId message) {
-  showHome();
+  restorePage();
   RenderLock lock(*this);
   status = message;
   requestUpdate();
@@ -134,8 +149,60 @@ void TextWebActivity::enterUrl() {
   }
   startActivityForResult(std::move(keyboard), [this](const ActivityResult& result) {
     if (result.isCancelled) return;
-    if (const auto* value = std::get_if<KeyboardResult>(&result.data)) fetchUrl(value->text);
+    if (const auto* value = std::get_if<KeyboardResult>(&result.data)) navigate(value->text);
   });
+}
+void TextWebActivity::search(crossloop::web::SearchEngine engine) {
+  auto keyboard = makeUniqueNoThrow<KeyboardEntryActivity>(
+      renderer, mappedInput,
+      engine == crossloop::web::SearchEngine::Google ? tr(STR_WEB_SEARCH_GOOGLE) : tr(STR_WEB_SEARCH_WIKIPEDIA),
+      std::string{}, 256, InputType::Text);
+  if (!keyboard) {
+    fail(StrId::STR_MEMORY_ERROR);
+    return;
+  }
+  startActivityForResult(std::move(keyboard), [this, engine](const ActivityResult& result) {
+    if (result.isCancelled) return;
+    if (const auto* value = std::get_if<KeyboardResult>(&result.data)) {
+      const auto url = crossloop::web::searchUrl(value->text, engine);
+      if (url.empty())
+        fail(StrId::STR_WEB_BAD_URL);
+      else
+        navigate(url);
+    }
+  });
+}
+void TextWebActivity::navigate(std::string url) {
+  replacing = false;
+  if (url.find("://") == std::string::npos) url.insert(0, "https://");
+  if (!crossloop::web::validUrl(url)) {
+    fail(StrId::STR_WEB_BAD_URL);
+    return;
+  }
+  const auto key = crossloop::web::pageKey(url);
+  if (hasCachedPage(key)) {
+    history.visit(key);
+    if (showPage(key)) openText();
+  } else {
+    fetchUrl(std::move(url));
+  }
+}
+void TextWebActivity::travel(bool forward) {
+  for (size_t attempt = 0; attempt < crossloop::web::History::CAPACITY; ++attempt) {
+    const std::string key = forward ? history.forward() : history.back();
+    if (key.empty()) break;
+    if (!showPage(key)) {
+      history.erase(key);
+      continue;
+    }
+    if (forward)
+      history.moveForward();
+    else
+      history.moveBack();
+    openText();
+    return;
+  }
+  fail(StrId::STR_WEB_HISTORY_END);
 }
 void TextWebActivity::fetchUrl(std::string url) {
   if (url.find("://") == std::string::npos) url.insert(0, "https://");
@@ -186,7 +253,7 @@ void TextWebActivity::startDownload() {
     if (pages >= 32) break;
   }
   cacheWasFull = pages >= 32;
-  if (cacheWasFull && !crossloop::web::readPageInfo(crossloop::web::pageKey(requestedUrl), page)) {
+  if (cacheWasFull && !hasCachedPage(crossloop::web::pageKey(requestedUrl))) {
     fail(StrId::STR_WEB_CACHE_FULL);
     return;
   }
@@ -212,7 +279,17 @@ void TextWebActivity::openText() {
     fail(StrId::STR_MEMORY_ERROR);
     return;
   }
-  startActivityForResult(std::move(reader), [this](const ActivityResult&) { showPage(currentKey); });
+  startActivityForResult(std::move(reader), [this](const ActivityResult& result) {
+    if (!result.isCancelled) {
+      if (const auto* selected = std::get_if<WebLinkResult>(&result.data)) {
+        if (crossloop::web::readPageLink(currentKey, selected->index, link)) {
+          navigate(link.url);
+          return;
+        }
+      }
+    }
+    showPage(currentKey);
+  });
 }
 void TextWebActivity::removePage() {
   auto confirm = makeUniqueNoThrow<ConfirmationActivity>(renderer, mappedInput, tr(STR_WEB_DELETE_PAGE), page.url);
@@ -228,6 +305,8 @@ void TextWebActivity::removePage() {
       fail(StrId::STR_FILE_OPEN_FAILED);
       return;
     }
+    history.erase(currentKey);
+    currentKey.clear();
     showSaved();
   });
 }
@@ -245,7 +324,11 @@ void TextWebActivity::activateIndex(int index) {
           return;
         }
         activityManager.goToFileBrowser("/WebPages");
-      } else if (index == 3 && feedsEnabled) {
+      } else if (index == 3) {
+        search(crossloop::web::SearchEngine::Google);
+      } else if (index == 4) {
+        search(crossloop::web::SearchEngine::Wikipedia);
+      } else if (index == 5 && feedsEnabled) {
         auto feeds = makeUniqueNoThrow<FeedActivity>(renderer, mappedInput);
         if (!feeds) {
           fail(StrId::STR_MEMORY_ERROR);
@@ -255,13 +338,16 @@ void TextWebActivity::activateIndex(int index) {
       }
       return;
     case Screen::Saved:
-      if (index >= 0 && index < count) showPage(keys[index]);
+      if (index >= 0 && index < count) {
+        history.visit(keys[index]);
+        showPage(keys[index]);
+      }
       return;
     case Screen::Page:
       if (index == 0)
         openText();
       else if (index == 1) {
-        referrerKey = previousKey;
+        replacing = true;
         fetchUrl(page.url);
       } else if (index == 2)
         enterUrl();
@@ -275,9 +361,12 @@ void TextWebActivity::activateIndex(int index) {
         RenderLock lock(*this);
         status = saved ? StrId::STR_WEB_EXPORTED : StrId::STR_WEB_SAVE_FAILED;
         requestUpdate();
-      } else if (index >= 6 && crossloop::web::readPageLink(currentKey, index - 6, link)) {
-        referrerKey = currentKey;
-        fetchUrl(link.url);
+      } else if (index == 6 || index == 7) {
+        travel(index == 7);
+      } else if (index == 8 || index == 9) {
+        search(index == 8 ? crossloop::web::SearchEngine::Google : crossloop::web::SearchEngine::Wikipedia);
+      } else if (index >= 10 && crossloop::web::readPageLink(currentKey, index - 10, link)) {
+        navigate(link.url);
       }
       return;
     case Screen::Downloading:
@@ -288,10 +377,8 @@ void TextWebActivity::activateIndex(int index) {
 void TextWebActivity::onBackButton() {
   if (screen == Screen::Downloading)
     download.cancel();
-  else if (screen == Screen::Page && !previousKey.empty()) {
-    const std::string back = std::move(previousKey);
-    previousKey.clear();
-    showPage(back);
+  else if (screen == Screen::Page && history.canBack()) {
+    travel(false);
   } else if (screen != Screen::Home)
     showHome();
   else
@@ -307,18 +394,17 @@ void TextWebActivity::loop() {
       const bool html =
           crossloop::web::mediaTypeIs(type, "text/html") || crossloop::web::mediaTypeIs(type, "application/xhtml+xml");
       std::string key;
-      if (cacheWasFull && !crossloop::web::readPageInfo(crossloop::web::pageKey(download.finalUrl()), page))
+      if (cacheWasFull && !hasCachedPage(crossloop::web::pageKey(download.finalUrl())))
         fail(StrId::STR_WEB_CACHE_FULL);
       else if (!plain && !html)
         fail(StrId::STR_WEB_UNSUPPORTED_CONTENT);
       else if (crossloop::web::importPage(RAW_PATH, download.finalUrl(), plain, key)) {
-        previousKey = std::move(referrerKey);
-        referrerKey.clear();
-        showPage(key);
+        history.visit(key, replacing);
+        if (showPage(key)) openText();
       } else
         fail(StrId::STR_WEB_SAVE_FAILED);
     } else if (result == VerifiedDownload::Result::Cancelled)
-      showHome();
+      restorePage();
     else if (result == VerifiedDownload::Result::Clock)
       fail(StrId::STR_WEB_CLOCK);
     else if (result == VerifiedDownload::Result::TooLarge)

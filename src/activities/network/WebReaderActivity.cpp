@@ -11,6 +11,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/WebPageStore.h"
+#include "util/WebTextLayout.h"
 
 namespace fui = freeink::ui;
 namespace {
@@ -20,14 +21,9 @@ constexpr int SIDE = 20;
 constexpr fui::ActionId LINKS = 1;
 constexpr fui::ActionId PREVIOUS = 2;
 constexpr fui::ActionId NEXT = 3;
+constexpr fui::ActionId FOLLOW = 4;
 }  // namespace
 
-size_t WebReaderActivity::nextCharacter(const char* value, size_t at, size_t length) {
-  if (at >= length) return length;
-  ++at;
-  while (at < length && (static_cast<unsigned char>(value[at]) & 0xc0) == 0x80) ++at;
-  return at;
-}
 int WebReaderActivity::textWidth(size_t start, size_t end) {
   const char saved = text[end];
   text[end] = 0;
@@ -37,43 +33,26 @@ int WebReaderActivity::textWidth(size_t start, size_t end) {
 }
 bool WebReaderActivity::loadPage() {
   lineCount = 0;
-  if (!file || !file.seek(crossloop::web::BODY_OFFSET + offsets[currentPage])) return false;
-  const int read = file.read(text, sizeof(text) - 1);
-  if (read < 0) return false;
-  const size_t length = static_cast<size_t>(read);
+  if (!file || offsets[currentPage] > textBytes || !file.seek(bodyOffset + offsets[currentPage])) return false;
+  const size_t wanted = std::min<size_t>(sizeof(text) - 1, textBytes - offsets[currentPage]);
+  const int read = file.read(text, wanted);
+  if (read < 0 || static_cast<size_t>(read) != wanted) return false;
+  const size_t length = crossloop::web::prepareChunk(text, wanted, offsets[currentPage] + wanted == textBytes);
   text[length] = 0;
   const int width = renderer.getScreenWidth() - 2 * SIDE;
   const int height = std::max(1, renderer.getLineHeight(UI_12_FONT_ID) + 4);
-  const unsigned maxLines = std::min<unsigned>(lines.size(), (renderer.getScreenHeight() - TOP - BOTTOM) / height);
+  const unsigned maxLines =
+      std::min<unsigned>(lines.size(), std::max(0, renderer.getScreenHeight() - TOP - BOTTOM) / height);
   size_t pos = 0;
   while (pos < length && lineCount < maxLines) {
-    if (text[pos] == '\n') {
-      lines[lineCount++] = {static_cast<uint16_t>(pos), 0};
-      ++pos;
-      continue;
-    }
-    const size_t start = pos;
-    size_t fit = start;
-    size_t space = start;
-    while (pos < length && text[pos] != '\n') {
-      const size_t end = nextCharacter(text, pos, length);
-      if (text[pos] == ' ') space = pos;
-      if (textWidth(start, end) > width) break;
-      fit = end;
-      pos = end;
-    }
-    size_t end = pos;
-    if (pos < length && text[pos] != '\n') {
-      end = space > start ? space : fit > start ? fit : nextCharacter(text, start, length);
-    }
-    if (end == start) end = nextCharacter(text, start, length);
-    lines[lineCount++] = {static_cast<uint16_t>(start), static_cast<uint16_t>(end - start)};
-    pos = end;
-    while (pos < length && text[pos] == ' ') ++pos;
-    if (pos < length && text[pos] == '\n') ++pos;
+    const auto span = crossloop::web::wrapLine(std::string_view(text + pos, length - pos), width,
+                                               [this, pos](size_t n) { return textWidth(pos, pos + n); });
+    if (!span.consumed) return false;
+    lines[lineCount++] = {static_cast<uint16_t>(pos), static_cast<uint16_t>(span.length)};
+    pos += span.consumed;
   }
   nextOffset = offsets[currentPage] + pos;
-  return length == 0 || pos > 0;
+  return wanted == 0 || pos > 0;
 }
 void WebReaderActivity::onEnter() {
   Activity::onEnter();
@@ -81,20 +60,36 @@ void WebReaderActivity::onEnter() {
   app.on(LINKS, action, this);
   app.on(PREVIOUS, action, this);
   app.on(NEXT, action, this);
+  app.on(FOLLOW, action, this);
   app.setScreen(controls, this);
   auto info = makeUniqueNoThrow<crossloop::web::PageInfo>();
   failed = !info || !crossloop::web::openPageFile(key, file, *info);
-  if (!failed) textBytes = info->textBytes;
+  if (!info)
+    LOG_ERR("WEB", "Page metadata allocation failed: %u bytes",
+            static_cast<unsigned>(sizeof(crossloop::web::PageInfo)));
+  linkOffsets.fill(UINT32_MAX);
+  if (!failed) {
+    textBytes = info->textBytes;
+    bodyOffset = info->bodyOffset;
+    linkCount = static_cast<uint8_t>(info->links);
+    auto link = makeUniqueNoThrow<crossloop::web::PageLink>();
+    if (!link) {
+      LOG_ERR("WEB", "Link metadata allocation failed: %u bytes",
+              static_cast<unsigned>(sizeof(crossloop::web::PageLink)));
+    } else {
+      for (unsigned i = 0; i < linkCount; ++i)
+        if (crossloop::web::readPageLink(file, *info, i, *link)) linkOffsets[i] = link->textOffset;
+    }
+  }
   {
     RenderLock lock(*this);
-    renderer.setOrientation(GfxRenderer::Orientation::Portrait);
     if (!failed) failed = !loadPage();
   }
   requestUpdate();
 }
 void WebReaderActivity::onExit() {
   closeRouting();
-  file.close();
+  if (file) file.close();
   Activity::onExit();
 }
 void WebReaderActivity::turn(int direction) {
@@ -102,6 +97,7 @@ void WebReaderActivity::turn(int direction) {
   if (failed || (direction < 0 && currentPage == 0) ||
       (direction > 0 && (nextOffset >= textBytes || currentPage + 1 >= offsets.size())))
     return;
+  closeRouting();
   if (direction > 0)
     offsets[++currentPage] = nextOffset;
   else
@@ -114,8 +110,13 @@ void WebReaderActivity::action(const fui::ActionEvent& event, void* user) {
   self.app.clearTapFlash();
   if (event.action == LINKS)
     finish();
-  else
+  else if (event.action == FOLLOW && event.value >= 0 && event.value < self.linkCount) {
+    self.closeRouting();
+    self.setResult(WebLinkResult{static_cast<unsigned>(event.value)});
+    finish();
+  } else if (event.action == PREVIOUS || event.action == NEXT) {
     self.turn(event.action == PREVIOUS ? -1 : 1);
+  }
 }
 void WebReaderActivity::loop() {
   const auto touch = routeTouch(mappedInput);
@@ -131,6 +132,32 @@ void WebReaderActivity::loop() {
 }
 void WebReaderActivity::controls(UiScreen& screen, void* user) {
   auto& self = *static_cast<WebReaderActivity*>(user);
+  // Only indexed markers become links; literal "[1]" in article text is inert.
+  // 20 inline targets + 3 footer controls fit the shared 24-entry routing table.
+  unsigned targets = 0;
+  const int lineHeight = self.renderer.getLineHeight(UI_12_FONT_ID) + 4;
+  for (unsigned i = 0; !self.failed && i < self.linkCount && targets < 20; ++i) {
+    const uint32_t absolute = self.linkOffsets[i];
+    if (absolute == UINT32_MAX || absolute < self.offsets[self.currentPage]) continue;
+    const uint32_t relative = absolute - self.offsets[self.currentPage];
+    char marker[8];
+    const int length = snprintf(marker, sizeof(marker), "[%u]", i + 1);
+    for (unsigned row = 0; row < self.lineCount; ++row) {
+      const auto& line = self.lines[row];
+      if (relative < line.offset || relative + length > line.offset + line.length ||
+          memcmp(self.text + relative, marker, length))
+        continue;
+      const int x = SIDE + self.textWidth(line.offset, relative);
+      const int w = self.textWidth(relative, relative + length);
+      const int y = TOP + row * lineHeight;
+      screen.frame().hit(fui::Rect{static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(w),
+                                   static_cast<int16_t>(lineHeight)},
+                         FOLLOW, static_cast<int16_t>(i), fui::InputTouch);
+      self.renderer.drawLine(x, y + lineHeight - 2, x + w, y + lineHeight - 2, 1, true);
+      ++targets;
+      break;
+    }
+  }
   const int width = self.renderer.getScreenWidth();
   const int y = self.renderer.getScreenHeight() - 52;
   const int third = (width - 2 * SIDE) / 3;

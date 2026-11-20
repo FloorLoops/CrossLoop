@@ -136,11 +136,15 @@ class WebTextStream final {
     }
     if (name == "a" && closing) {
       if (href[0] && linkCount < 32) {
+        // Emit the separator before recording the marker: emit() can collapse it.
+        const size_t labelLength = anchorLength;
+        if (!emit(' ') || !flush()) return false;
+        anchor[labelLength] = 0;
         if (!sink.link(sink.context, href, anchor[0] ? anchor : href)) return false;
         ++linkCount;
         href[0] = 0;
         char marker[12];
-        const int length = snprintf(marker, sizeof(marker), " [%u]", static_cast<unsigned>(linkCount));
+        const int length = snprintf(marker, sizeof(marker), "[%u]", static_cast<unsigned>(linkCount));
         for (int i = 0; i < length; ++i)
           if (!emit(marker[i])) return false;
       }

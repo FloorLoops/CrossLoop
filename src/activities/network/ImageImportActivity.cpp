@@ -26,7 +26,7 @@ void ImageImportActivity::onEnter() {
 }
 void ImageImportActivity::discard() {
   previewBitmap.reset();
-  previewFile.close();
+  if (previewFile) previewFile.close();
   if (!rawPath.empty()) Storage.remove(rawPath.c_str());
   if (!preparedPath.empty()) Storage.remove(preparedPath.c_str());
   rawPath.clear();
@@ -169,7 +169,7 @@ void ImageImportActivity::finishDownload() {
 bool ImageImportActivity::openPreview() {
   previewReadable.store(false);
   previewBitmap.reset();
-  previewFile.close();
+  if (previewFile) previewFile.close();
   previewFile = Storage.open(preparedPath.c_str());
   if (!previewFile) return false;
   previewBitmap = makeUniqueNoThrow<Bitmap>(previewFile, true);
@@ -177,7 +177,7 @@ bool ImageImportActivity::openPreview() {
 }
 bool ImageImportActivity::keepImage(bool apply) {
   previewBitmap.reset();
-  previewFile.close();
+  if (previewFile) previewFile.close();
   if (preparedPath.empty() || !Storage.ensureDirectoryExists("/Pictures/CrossLoop")) return false;
   const auto name = preparedPath.substr(preparedPath.find_last_of('/') + 1);
   const auto target = std::string("/Pictures/CrossLoop/") + name;

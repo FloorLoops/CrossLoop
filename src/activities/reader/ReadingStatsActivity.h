@@ -20,8 +20,10 @@ class ReadingStatsActivity final : public UiListActivity {
 
  private:
   void reload();
-  freeink::ui::ListItem rows[11]{};
-  char labels[11][96]{};
+  freeink::ui::ListItem rows[14]{};
+  char labels[14][96]{};
   int count = 0;
   bool failed = false;
+  uint16_t dailyGoal = 20;
+  int goalRow = -1;
 };

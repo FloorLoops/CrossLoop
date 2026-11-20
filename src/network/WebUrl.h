@@ -8,6 +8,28 @@
 namespace crossloop::web {
 constexpr size_t MAX_URL = 1024;
 
+enum class SearchEngine { Google, Wikipedia };
+inline std::string searchUrl(std::string_view query, SearchEngine engine) {
+  while (!query.empty() && std::isspace(static_cast<unsigned char>(query.front()))) query.remove_prefix(1);
+  while (!query.empty() && std::isspace(static_cast<unsigned char>(query.back()))) query.remove_suffix(1);
+  if (query.empty() || query.size() > 256) return {};
+  std::string url = engine == SearchEngine::Google ? "https://www.google.com/search?gbv=1&q="
+                                                   : "https://en.wikipedia.org/w/index.php?search=";
+  url.reserve(url.size() + query.size() * 3);
+  constexpr char HEX_DIGITS[] = "0123456789ABCDEF";
+  for (unsigned char c : query) {
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' ||
+        c == '.' || c == '~') {
+      url += static_cast<char>(c);
+    } else {
+      url += '%';
+      url += HEX_DIGITS[c >> 4];
+      url += HEX_DIGITS[c & 15];
+    }
+  }
+  return url.size() <= MAX_URL ? url : std::string{};
+}
+
 inline bool mediaTypeIs(std::string_view header, std::string_view expected) {
   header = header.substr(0, header.find(';'));
   while (!header.empty() && (header.front() == ' ' || header.front() == '\t')) header.remove_prefix(1);

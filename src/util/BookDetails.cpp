@@ -107,7 +107,7 @@ bool saveDetails(const std::string& bookPath, const Details& details) {
   const bool primaryValid = read(primary, *checked);
   auto existing = Storage.open(temporary.c_str());
   if (existing && existing.isDirectory()) return false;
-  existing.close();
+  if (existing) existing.close();
   HalFile file;
   if (!Storage.openFileForWrite("DETAILS", temporary, file)) return false;
   uint8_t header[HEADER_SIZE]{};

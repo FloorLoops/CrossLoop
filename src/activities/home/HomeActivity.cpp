@@ -26,6 +26,12 @@
 #include "util/BookDetails.h"
 #if FREEINK_DEVICE_X4PRO || (FREEINK_DEVICE_X3 && !FREEINK_DEVICE_X4)
 #include "activities/network/TextWebActivity.h"
+#if CROSSLOOP_NETSURF_PROBE
+#include "activities/network/NativeBrowserActivity.h"
+#if CROSSLOOP_DREAM_OS
+#include "CrossLoopHubActivity.h"
+#endif
+#endif
 #include "activities/network/TickTickActivity.h"
 #include "activities/util/BmpViewerActivity.h"
 #endif
@@ -355,12 +361,20 @@ void HomeActivity::loop() {
         break;
 #if FREEINK_DEVICE_X4PRO || (FREEINK_DEVICE_X3 && !FREEINK_DEVICE_X4)
       case HomeMenuItem::TICKTICK: {
+#if CROSSLOOP_DREAM_OS
+        auto activity = makeUniqueNoThrow<CrossLoopHubActivity>(renderer, mappedInput);
+#else
         auto activity = makeUniqueNoThrow<TickTickActivity>(renderer, mappedInput);
+#endif
         if (activity) startActivityForResult(std::move(activity), nullptr);
         break;
       }
       case HomeMenuItem::READ_LATER: {
+#if CROSSLOOP_NETSURF_PROBE
+        auto activity = makeUniqueNoThrow<NativeBrowserActivity>(renderer, mappedInput);
+#else
         auto activity = makeUniqueNoThrow<TextWebActivity>(renderer, mappedInput);
+#endif
         if (activity) startActivityForResult(std::move(activity), nullptr);
         break;
       }
@@ -566,9 +580,17 @@ void HomeActivity::render(RenderLock&&) {
                                         tr(STR_SETTINGS_TITLE)};
   std::vector<UIIcon> menuIcons = {Folder, Library, Transfer, Settings};
 #if FREEINK_DEVICE_X4PRO || (FREEINK_DEVICE_X3 && !FREEINK_DEVICE_X4)
+#if CROSSLOOP_DREAM_OS
+  menuItems.push_back(tr(STR_DREAM_APPS));
+#else
   menuItems.push_back(tr(STR_PERSONAL_SLEEP_TICKTICK));
+#endif
   menuIcons.push_back(Bookmark);
+#if CROSSLOOP_NETSURF_PROBE
+  menuItems.push_back(tr(STR_NATIVE_BROWSER));
+#else
   menuItems.push_back(tr(STR_TEXT_WEB));
+#endif
   menuIcons.push_back(Book);
 #endif
 

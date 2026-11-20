@@ -794,3 +794,22 @@ defaults while a profile is active.
 
 This version change applies only to the profile sidecar. Section cache layouts
 are unchanged; their existing font and text-setting comparisons handle reflow.
+
+
+## CrossLoop web cache (CLWEB02)
+
+The downstream Text Web cache lives in `/.crosspoint/web/<32 lowercase hex>.web`.
+The key is the existing MD5 of the final URL. It is unrelated to book/progress caches.
+Header: magic `CLWEB02\n` (8 bytes), text length u32le at 8, link count u32le at 12,
+Unix sync time u64le at 16, reserved zeros through byte 31, then URL[1025].
+There are always 32 reserved link records: URL[1025], label[128], marker body offset u32le.
+The marker offset points to the opening `[` in the parser-emitted `[1]` to `[32]` marker.
+The UTF-8 text body starts at 38081 bytes, capped at 256 KiB. Raw input remains capped
+at 512 KiB. Literal bracketed numbers are not interaction targets.
+
+Readers accept CLWEB01 with its original 1153-byte records and 37953-byte body offset;
+those pages retain their Links menu, but gain inline targets only after Reload. CLWEB02
+writes use the existing recoverable `.part` / `.bak` protocol and never rewrite a cache
+merely to read it. Older firmware cannot read a new v2 primary; an intact v1 backup can
+still be read by its fallback. Newly downloaded v2 pages may require re-fetching after
+a firmware downgrade. No clearing of the web directory or book caches is required.

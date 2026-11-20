@@ -29,7 +29,6 @@ class WebReaderActivity final : public Activity, private UiAppHost {
   void turn(int direction);
   bool loadPage();
   int textWidth(size_t start, size_t end);
-  static size_t nextCharacter(const char* text, size_t at, size_t length);
 
   std::string key;
   HalFile file;
@@ -40,5 +39,8 @@ class WebReaderActivity final : public Activity, private UiAppHost {
   uint16_t lineCount = 0;
   uint32_t nextOffset = 0;
   uint32_t textBytes = 0;
+  uint32_t bodyOffset = 0;
+  std::array<uint32_t, 32> linkOffsets{};
+  uint8_t linkCount = 0;
   bool failed = false;
 };

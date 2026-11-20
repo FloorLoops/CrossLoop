@@ -1,14 +1,20 @@
 # CrossLoop feature intake
 
+Current source candidate: **0.9.0-rc.5**, with Google/English Wikipedia search,
+32-entry Back/Forward history, inline link markers and safer file cleanup.
+See [the candidate guide](NOV13-BROWSER.md) for scope, limits and pending physical
+acceptance. The milestone tables below preserve historical receipts and are not
+a claim about the currently installed firmware.
+
 November 8 scope update: Elias selected **Crossed Orbits** and requested holiday branding, completion of wanted features, suitable community-requested additions, a speed/buffer pass, rc.4 testing, then v1. The previously deferred light, library and image improvements are now in this preparation scope. Source implementation is not hardware acceptance. The original chat remains the sole writer; Fable supplies a read-only review.
 
-## Current rc4 candidate
+## Historical rc4 candidate
 
 The rc4 source has completed two bounded rounds of correctness, architecture, embedded-resource and documentation review, plus Fable's preliminary review. Both final firmware builds passed without compiler warnings. Both application images passed integrity, model, version and signing-key checks; their signed manifests verified locally. Physical performance, live accounts and X3 installation remain unverified. See [RC4-TESTING.md](RC4-TESTING.md) for exact setup paths, limits and the device trial.
 
 | Feature | rc4 implementation | Still needs device acceptance |
 |---|---|---|
-| Text Web | Direct HTTP/HTTPS text browsing, links, one-step Back, 32 saved pages and Read Later; no companion computer | Live HTTPS, navigation, cancellation and offline reopening |
+| Text Web | Direct HTTP/HTTPS text browsing, links, Back (rc4 behavior), 32 saved pages and Read Later; no companion computer | Live HTTPS, navigation, cancellation and offline reopening |
 | TickTick | Editable token, up to eight selected lists, cached tasks, confirmed completion and shared sleep screen | Real account connection and a disposable task completion |
 | RSS/Atom | Up to four editable feed URLs and cached articles | Real feed refresh and offline reading |
 | Weather | Editable coordinates/label/units, illustrated conditions and three-day forecast | Location accuracy, layout and live provider response |
